@@ -1,30 +1,51 @@
 {
-    "name": "nianiolangcode",
-    "displayName": "NianioLangCode",
-    "description": "Basic support for NianioLang",
-    "version": "0.0.3",
-    "publisher": "JanGrzybek",
+    "name": "nianiolang-dev-kit",
+    "displayName": "NianioLang Dev Kit",
+    "description": "",
+    "version": "0.2.0",
+    "publisher": "padr",
     "engines": {
-        "vscode": "^1.30.0"
+        "vscode": "^1.98.0"
     },
+    "main": "./src/extension.js",
+    "activationEvents": [
+        "onCommand:nianiolang.makeMethodPublic",
+        "onCommand:nianiolang.addImportAndTriggerSignatureHelp"
+    ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/kolkil/nianiolang-code"
+        "url": "https://github.com/padr-atinea/NianioLang-Dev-Kit"
     },
+    "icon": "logo.png",
     "categories": [
         "Programming Languages"
     ],
     "contributes": {
         "languages": [{
             "id": "nianiolang",
-            "aliases": ["NianioLang", "nianiolang"],
-            "extensions": [".nl"],
+            "aliases": [
+                "NianioLang",
+                "nianiolang",
+                "nl"
+            ],
+            "extensions": [
+                ".nl"
+            ],
             "configuration": "./language-configuration.json"
         }],
         "grammars": [{
             "language": "nianiolang",
-            "scopeName": "source.nianio",
+            "scopeName": "source.nl",
             "path": "./syntaxes/nianiolang.tmLanguage.json"
-        }]
+        }],
+        "commands": [
+            {
+                "command": "extension.updateAllDiagnostics",
+                "title": "NianioLang: Update All Files Diagnostics"
+            }
+        ]
+    },
+    "dependencies": {
+        "ignore": "^7.0.3"
     }
 }
