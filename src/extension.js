@@ -19,9 +19,10 @@ function getMethod(fullName, fileName) {
 function getMethodAtPosition(document, position) {
     const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
     if (!range) return;
-    const obj = getMethod(document.getText(range), document.fileName);
+    const fullName = document.getText(range);
+    const obj = getMethod(fullName, document.fileName);
     if (!obj) return;
-    return { range, ...obj };
+    return { fullName, range, ...obj };
 }
 
 async function provideDefinition(document, position) {
@@ -129,13 +130,15 @@ function addImportAndTriggerSignatureHelp(moduleName, uri) {
     vscode.commands.executeCommand('editor.action.triggerParameterHints');
 }
 
-function moduleNameNotEqualFileName(document, range) {
-    document, range;
-}
-
 class NianioLangCodeActionProvider {
     provideCodeActions(document, range, context, token) {
         const actions = [];
+        const diagnostics = vscode.languages.getDiagnostics(document.uri);
+        const diagnosticsDuplicates = diagnostics.map(d => d.code).reduce((prev,curr) => {
+            if (!(curr in prev)) prev[curr] = 0;
+            prev[curr]++;
+            return prev;
+        }, {});
         for (const diagnostic of context.diagnostics) {
             if (diagnostic.code === 'missingImport') {
                 const moduleName = document.getText(new vscode.Range(diagnostic.range.start, diagnostic.range.end));
@@ -177,14 +180,15 @@ class NianioLangCodeActionProvider {
                 action.edit = edit;
                 action.diagnostics = [diagnostic];
                 actions.push(action);
-
-                const fileAction = new vscode.CodeAction("Remove all unnecessary usings in this file", vscode.CodeActionKind.QuickFix);
-                fileAction.command = {
-                    command: "extension.removeAllUsingsInFile",
-                    title: "Remove all unnecessary usings in this file",
-                    arguments: [document.uri]
-                };
-                actions.push(fileAction);
+                if (diagnosticsDuplicates['duplicatedImport'] > 1) {
+                    const fileAction = new vscode.CodeAction("Remove all unnecessary usings in this file", vscode.CodeActionKind.QuickFix);
+                    fileAction.command = {
+                        command: "extension.removeAllUsingsInFile",
+                        title: "Remove all unnecessary usings in this file",
+                        arguments: [document.uri]
+                    };
+                    actions.push(fileAction);
+                }
             } else if (diagnostic.code === 'moduleNameNotEqualFileName') {
                 // Module name '${moduleName}' must equal file name '${thisModuleName}'
                 const methodNameMatch = diagnostic.message.match(/Module name '([a-zA-Z0-9_]+)' must equal /);
@@ -198,14 +202,15 @@ class NianioLangCodeActionProvider {
                     action.edit = edit;
                     action.diagnostics = [diagnostic];
                     actions.push(action);
-
-                    const fileAction = new vscode.CodeAction("Fix all incorret names", vscode.CodeActionKind.QuickFix);
-                    fileAction.command = {
-                        command: "extension.fixAllIncorretNames",
-                        title: "Fix all incorret names",
-                        arguments: [document.uri, fileName]
-                    };
-                    actions.push(fileAction);
+                    if (diagnosticsDuplicates['duplicatedImport'] > 1) {
+                        const fileAction = new vscode.CodeAction("Fix all incorret names", vscode.CodeActionKind.QuickFix);
+                        fileAction.command = {
+                            command: "extension.fixAllIncorretNames",
+                            title: "Fix all incorret names",
+                            arguments: [document.uri, fileName]
+                        };
+                        actions.push(fileAction);
+                    }
                 }
             } 
         }
@@ -251,7 +256,8 @@ function makeMethodPublic(moduleName, functionName) {
 
 function provideHover(document, position) {
     const obj = getMethodAtPosition(document, position); if (!obj) return;
-    const { method, methodName, moduleName, range } = obj;
+    const { module, method, methodName, moduleName, range } = obj;
+    if (module.filePath == document.fileName && method.startingOffset == document.offsetAt(range.start)) return;
 
     const def = `def ${moduleName}::${methodName}(${method.parameters}) ${method.returnType.length > 0 ? `: ${method.returnType}` : ``}`;
     // const shortDef = `${def} { ... }`;
@@ -276,21 +282,35 @@ async function getReferences(document, position, applyToMatch) {
     }
 }
 
-// async function provideRenameEdits(document, position, newName) {
-//     const edit = new vscode.WorkspaceEdit();
-//     const offset = document.offsetAt(position);
-//     if (!/[a-zA-Z0-9_]/.test(newName)) return;
-//     await getReferences(document, position, (doc, match) => {
-//         const startPos = doc.positionAt(match.index);
-//         const oldName = match[1];
-//         if (oldName.includes('::')) {
-//             // if 
-//         }
-//         const endPos = doc.positionAt(match.index + match[1].length);
-//         edit.replace(doc.uri, new vscode.Range(startPos, endPos), newName);
-//     });
-//     return edit;
-// }
+async function prepareRename(document, position) {
+    const obj = getMethodAtPosition(document, position); if (!obj) throw new Error();
+    const { fullName, method, methodName, module } = obj;
+    const doc = await vscode.workspace.openTextDocument(module.filePath);
+    return {
+        range: new vscode.Range(doc.positionAt(method.startingOffset), doc.positionAt(method.startingOffset + fullName.length)),
+        placeholder: methodName,
+    }
+}
+
+async function provideRenameEdits(document, position, newName) {
+    if (!/[a-zA-Z0-9_]/.test(newName)) return;
+    const obj = getMethodAtPosition(document, position); if (!obj) return;
+    const { fullName, method, module, moduleName } = obj;
+    const references = moduleManager.getReferences(fullName, document.uri.fsPath);
+    if (fullName.includes("::")) newName = `${moduleName}::${newName}`;
+
+    const edit = new vscode.WorkspaceEdit();
+    for (const [file, positions] of Object.entries(references)) {
+        const doc = await vscode.workspace.openTextDocument(file);
+        for (const pos of positions) {
+            edit.replace(doc.uri, new vscode.Range(doc.positionAt(pos), doc.positionAt(pos + fullName.length)), newName);
+        }
+    }
+    const doc = await vscode.workspace.openTextDocument(module.filePath);
+
+    edit.replace(doc.uri, new vscode.Range(doc.positionAt(method.startingOffset), doc.positionAt(method.startingOffset + fullName.length)), newName);
+    return edit;
+}
 
 async function provideReferences(document, position) {
     const locations = [];
@@ -303,7 +323,7 @@ async function removeAllUsingsInFile(uri) {
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
     const edit = new vscode.WorkspaceEdit();
     for (const diagnostic of diagnostics) {
-        if (diagnostic.code === 'duplicatedImport') continue;
+        if (diagnostic.code !== 'duplicatedImport') continue;
         const text = document.getText();
         const charAtEnd = text[document.offsetAt(diagnostic.range.end)];
         const endPos = charAtEnd === '\n'
@@ -315,14 +335,14 @@ async function removeAllUsingsInFile(uri) {
     await vscode.workspace.applyEdit(edit);
 }
 
-async function fixAllIncorretNames(uri, fileName) {
+async function fixAllIncorretNames(uri, newName) {
     const document = await vscode.workspace.openTextDocument(uri);
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
     const edit = new vscode.WorkspaceEdit();
     for (const diagnostic of diagnostics) {
         if (diagnostic.code !== 'moduleNameNotEqualFileName') continue;
         const range = new vscode.Range(diagnostic.range.start, diagnostic.range.end);
-        edit.replace(document.uri, range, fileName);
+        edit.replace(document.uri, range, newName);
     }
     await vscode.workspace.applyEdit(edit);
 }
@@ -338,6 +358,11 @@ async function fixAllIncorretNamesWhenRename(file) {
 }
 
 class ReferenceCounterCodeLensProvider {
+    constructor() {
+        this._onDidChangeCodeLenses = new vscode.EventEmitter();
+        this.onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+    }
+
     async provideCodeLenses(document, token) {
         const filePath = document.uri.fsPath;
         const moduleName = path.basename(filePath, path.extname(filePath));
@@ -371,7 +396,32 @@ class ReferenceCounterCodeLensProvider {
     }
 }
 
+function addFileWathers(context, codeLensProvider) {
+    const ignoreFileWatcher = vscode.workspace.createFileSystemWatcher('{.gitignore,.vscodeignore}');
+    ignoreFileWatcher.onDidCreate(moduleManager.updateIgnore);
+    ignoreFileWatcher.onDidChange(moduleManager.updateIgnore);
+    ignoreFileWatcher.onDidDelete(moduleManager.updateIgnore);
+    context.subscriptions.push(ignoreFileWatcher);
+
+    const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.nl');
+    fileWatcher.onDidCreate(uri => vscode.workspace.openTextDocument(uri).then(document => {
+        moduleManager.updateModule(document.uri.fsPath, document.getText(), true);
+        codeLensProvider._onDidChangeCodeLenses.fire();
+    }));
+    fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
+        moduleManager.updateModule(document.uri.fsPath, document.getText(), true);
+        codeLensProvider._onDidChangeCodeLenses.fire();
+    }));
+    fileWatcher.onDidDelete(uri => {
+        moduleManager.removeModule(uri.fsPath, true);
+        codeLensProvider._onDidChangeCodeLenses.fire();
+    });
+    context.subscriptions.push(fileWatcher);
+}
+
 async function activate(context) {
+    const codeLensProvider = new ReferenceCounterCodeLensProvider();
+
     const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: starting`);
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
@@ -380,7 +430,7 @@ async function activate(context) {
     }, async (progress, token) => {
         progress.report({ increment: 0 });
 
-        const files = await moduleManager.findFiles(); 
+        const files = await moduleManager.findFiles();
         for (const i in files) {
             try {
                 const document = await vscode.workspace.openTextDocument(files[i]);
@@ -390,14 +440,11 @@ async function activate(context) {
                 console.error(e);
             }
         }
-        console.log('loadAllModules complited');
-
-        const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.nl', '**/node_modules/**');
-        fileWatcher.onDidCreate(uri => vscode.workspace.openTextDocument(uri).then(document => moduleManager.updateModule(document.uri.fsPath, document.getText())));
-        fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => moduleManager.updateModule(document.uri.fsPath, document.getText())));
-        fileWatcher.onDidDelete(uri => moduleManager.removeModule(uri.fsPath));
-        context.subscriptions.push(fileWatcher);
     });
+
+    console.log('loadAllModules complited');
+
+    addFileWathers(context, codeLensProvider);
 
     // await loadAllModules(context);
 
@@ -407,16 +454,20 @@ async function activate(context) {
     context.subscriptions.push(vscode.languages.registerSignatureHelpProvider(selector, { provideSignatureHelp }, '(', ','));
     context.subscriptions.push(vscode.languages.registerCodeActionsProvider(selector, new NianioLangCodeActionProvider(), { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }));
     context.subscriptions.push(vscode.languages.registerHoverProvider(selector, { provideHover }));
-    // context.subscriptions.push(vscode.languages.registerRenameProvider(selector, { provideRenameEdits, prepareRename }));
+    context.subscriptions.push(vscode.languages.registerRenameProvider(selector, { provideRenameEdits, prepareRename }));
     context.subscriptions.push(vscode.languages.registerReferenceProvider(selector, { provideReferences }));
     context.subscriptions.push(vscode.commands.registerCommand('activate.addImport', addImport));
     context.subscriptions.push(vscode.commands.registerCommand('nianiolang.makeMethodPublic', makeMethodPublic));
     context.subscriptions.push(vscode.commands.registerCommand('nianiolang.addImportAndTriggerSignatureHelp', addImportAndTriggerSignatureHelp));
-    context.subscriptions.push(vscode.commands.registerCommand('nianiolang.moduleNameNotEqualFileName', moduleNameNotEqualFileName));
+    // context.subscriptions.push(vscode.commands.registerCommand('nianiolang.moduleNameNotEqualFileName', moduleNameNotEqualFileName));
     context.subscriptions.push(vscode.commands.registerCommand('extension.removeAllUsingsInFile', removeAllUsingsInFile));
     context.subscriptions.push(vscode.commands.registerCommand('extension.fixAllIncorretNames', fixAllIncorretNames));
     context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => event.files.forEach(fixAllIncorretNamesWhenRename)));
-    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => diagnosticsManager.updateDiagnostics(event.document)));
+    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
+        moduleManager.updateModule(event.document.uri.fsPath, event.document.getText(), true);
+        codeLensProvider._onDidChangeCodeLenses.fire();
+        diagnosticsManager.updateDiagnostics(event.document);
+    }));
     // context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(diagnosticsManager.updateDiagnostics));
     context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(diagnosticsManager.deleteDocument));
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(diagnosticsManager.updateAllOpenTabs));
@@ -424,7 +475,7 @@ async function activate(context) {
         editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document));
     }));
 
-    context.subscriptions.push(vscode.languages.registerCodeLensProvider(selector, new ReferenceCounterCodeLensProvider()));
+    context.subscriptions.push(vscode.languages.registerCodeLensProvider(selector, codeLensProvider));
     context.subscriptions.push(vscode.commands.registerCommand('extension.showReferences', async (document, position) => {
         const locations = await provideReferences(document, position);
         vscode.commands.executeCommand('editor.action.showReferences', document.uri, position, locations);

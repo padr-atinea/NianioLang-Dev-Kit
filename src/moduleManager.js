@@ -6,8 +6,27 @@ const ignore = require('ignore');
 const moduleCache = {};
 const referenceCache = {};
 const referenceBackCache = {};
+let ig = ignore();
 
-function updateModule(filePath, text) {
+function updateIgnore() {
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return;
+    const workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    ig = ignore();
+    const gitignorePath = path.join(workspaceFolderPath, '.gitignore');
+    const vscodeignorePath = path.join(workspaceFolderPath, '.vscodeignore');
+    if (fs.existsSync(gitignorePath)) ig.add(fs.readFileSync(gitignorePath, 'utf8'));
+    if (fs.existsSync(vscodeignorePath)) ig.add(fs.readFileSync(vscodeignorePath, 'utf8'));
+}
+
+function checkFileIgnore(filePath) {
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return true;
+    const workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    updateIgnore();
+    return ig.ignores(path.relative(workspaceFolderPath, filePath));
+}
+
+function updateModule(filePath, text, checkIgnore = false) {
+    if (checkIgnore && checkFileIgnore(filePath)) return;
     const thisModuleName = path.basename(filePath, path.extname(filePath));
     const privateMethods = {};
     const publicMethods = {};
@@ -206,26 +225,28 @@ function updateModule(filePath, text) {
     moduleCache[thisModuleName] = { filePath, privateMethods, publicMethods }
 }
 
-function removeModule(filePath) {
+function removeModule(filePath, checkIgnore = false) {
+    if (checkIgnore && checkFileIgnore(filePath)) return;
     const segments = filePath.split('/');
     const fileName = segments[segments.length - 1];
     const moduleName = fileName.split('.')[0];
     delete moduleCache[moduleName];
+
+    if (filePath in referenceBackCache) {
+        for (const method of Object.keys(referenceBackCache[filePath])) {
+            if (method in referenceCache && filePath in referenceCache[method]) {
+                delete referenceCache[method][filePath];
+            }
+        }
+    }
+    delete referenceBackCache[filePath];
 }
 
 async function findFiles(filePath = '**/*.nl') {
     if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return [];
     const workspaceFolderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const ig = ignore();
-    const gitignorePath = path.join(workspaceFolderPath, '.gitignore');
-    const vscodeignorePath = path.join(workspaceFolderPath, '.vscodeignore');
-    if (fs.existsSync(gitignorePath)) ig.add(fs.readFileSync(gitignorePath, 'utf8'));
-    if (fs.existsSync(vscodeignorePath)) ig.add(fs.readFileSync(vscodeignorePath, 'utf8'));
-    const allFiles = await vscode.workspace.findFiles(filePath, '**/node_modules/**');
-    return allFiles.filter(uri => {
-        const relativePath = path.relative(workspaceFolderPath, uri.fsPath);
-        return !ig.ignores(relativePath);
-    });
+    updateIgnore();
+    return (await vscode.workspace.findFiles(filePath, '**/node_modules/**')).filter(uri => !ig.ignores(path.relative(workspaceFolderPath, uri.fsPath)));
 }
 
 function getModule(moduleName) {
@@ -241,4 +262,4 @@ function getReferences(functionName, filePath) {
 }
 
 
-module.exports = { updateModule, removeModule, getModule, moduleCache, findFiles, getReferences };
+module.exports = { updateModule, removeModule, getModule, moduleCache, findFiles, getReferences, updateIgnore };
