@@ -1,128 +1,128 @@
 {
-    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-    "name": "NianioLang",
-    "patterns": [
-        {
-            "include": "#keywords"
-        },
-        {
-            "include": "#strings"
-        },
-        {
-            "include": "#variants"
-        },
-        {
-            "include": "#comments"
-        },
-        {
-            "include": "#modules"
-        },
-        {
-            "include": "#functions"
-        },
-        {
-            "include": "#vars"
-        },
-        {
-            "include": "#constants"
-        },
-        {
-            "include": "#fields"
-        },
-        {
-            "include": "#references"
-        }
-    ],
-    "repository": {
-        "keywords": {
-            "patterns": [
-                {
-                    "name": "keyword.control.nianiolang",
-                    "match": "\\b(?<!->)(?<!:)(unless|ref|as|is|eq|die|ensure|ne|else|elsif|use|fora|forh|def|match|case|try|if|while|for|return|break|continue|rep)\\b"
-                }
-            ]
-        },
-        "references": {
-            "patterns": [
-                {
-                    "match": "(@[a-zA-Z:()_0-9]+)",
-                    "name": "variable.name"
-                }
-            ]
-        },
-        "fields": {
-            "patterns": [
-                {
-                    "match": "(->)",
-                    "name": "variable.name"
-                },
-                {
-                    "match": "\b(=>)\b",
-                    "name": "variable.name"
-                }
-            ]
-        },
-        "constants": {
-            "patterns": [
-                {
-                    "match": "((?<![a-zA-Z_])[0-9]+)",
-                    "name": "constant.numeric"
-                },
-                {
-                    "match": "\\b(true|false)\\b",
-                    "name": "constant.language"
-                }
-            ]
-        },
-        "strings": {
-            "name": "string.quoted.double.nianiolang",
-            "patterns": [
-                {
-                    "match": "'(.*?)('|\n)",
-                    "name": "string.quoted.double.nianiolang"
-                }
-            ]
-        },
-        "variants": {
-            "patterns": [
-                {
-                    "match": "((?<!:):[a-zA-Z0-9_]+)",
-                    "name": "storage.type"
-                }
-            ]
-        },
-        "comments": {
-            "patterns": [
-                {
-                    "match": "(#.*)",
-                    "name": "comment"
-                }
-            ]
-        },
-        "vars": {
-            "patterns": [
-                {
-                    "match": "\\b(?<!->)(?<!:)(var)\\b",
-                    "name": "constant.language"
-                }
-            ]
-        },
-        "modules": {
-            "patterns": [
-                {
-                    "match": "\\b([a-zA-Z0-9_]+(?=:))\\b",
-                    "name": "entity.name.class"
-                }
-            ]
-        },
-        "functions": {
-            "patterns": [
-                {
-                    "match": "([a-zA-Z0-9_]*\\()",
-                    "name": "entity.name.function"
-                }
-            ]
-        }
-    },
-    "scopeName": "source.nl"
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "NianioLang",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#variants"
+		},
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#modules"
+		},
+		{
+			"include": "#functions"
+		},
+		{
+			"include": "#vars"
+		},
+		{
+			"include": "#constants"
+		},
+		{
+			"include": "#fields"
+		},
+		{
+			"include": "#references"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.nianiolang",
+					"match": "\\b(?<!->)(?<!:)(unless|ref|as|is|eq|die|ensure|ne|else|elsif|use|fora|forh|def|match|case|try|if|while|for|return|break|continue|rep|loop)\\b(?!\\s*[=-]>)"
+				}
+			]
+		},
+		"references": {
+			"patterns": [
+				{
+					"match": "(@[a-zA-Z:()_0-9]+)",
+					"name": "variable.name"
+				}
+			]
+		},
+		"fields": {
+			"patterns": [
+				{
+					"match": "(->)",
+					"name": "variable.name"
+				},
+				{
+					"match": "\b(=>)\b",
+					"name": "variable.name"
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"match": "((?<![a-zA-Z_])[0-9]+)",
+					"name": "constant.numeric"
+				},
+				{
+					"match": "\\b(true|false)\\b(?!\\s*[=-]>)",
+					"name": "constant.language"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.nianiolang",
+			"patterns": [
+				{
+					"match": "'(.*?)('|\n)",
+					"name": "string.quoted.double.nianiolang"
+				}
+			]
+		},
+		"variants": {
+			"patterns": [
+				{
+					"match": "((?<!:):[a-zA-Z0-9_]+)",
+					"name": "storage.type"
+				}
+			]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"match": "(#.*)",
+					"name": "comment"
+				}
+			]
+		},
+		"vars": {
+			"patterns": [
+				{
+					"match": "\\b(?<!->)(?<!:)(var)\\b(?!\\s*[=-]>)",
+					"name": "constant.language"
+				}
+			]
+		},
+		"modules": {
+			"patterns": [
+				{
+					"match": "\\b([a-zA-Z0-9_]+(?=::))\\b",
+					"name": "entity.name.class"
+				}
+			]
+		},
+		"functions": {
+			"patterns": [
+				{
+					"match": "\\b(?<!var\\s+)([a-zA-Z0-9_]+\\s*\\()",
+					"name": "entity.name.function"
+				}
+			]
+		}
+	},
+	"scopeName": "source.nl"
 }
