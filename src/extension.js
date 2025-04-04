@@ -25,12 +25,22 @@ function getMethodAtPosition(document, position) {
 	return { fullName, range, ...obj };
 }
 
-async function provideDefinition(document, position) {
+function tryGetPosToken(document, pos) {
 	const filePath = document.fileName;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const thisModule = moduleManager.getModule(thisModuleName);
+	const token = thisModule.positions[pos];
+	if (token) token.startPos = pos;
+	return thisModule.positions[pos];
+}
+
+function tryGetPosTokenAtPosition(document, position) {
 	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
-	const token = thisModule.positions[document.offsetAt(range.start)];
+	return tryGetPosToken(document, document.offsetAt(range.start));
+}
+
+async function provideDefinition(document, position) {
+	const token = tryGetPosTokenAtPosition(document, position);
 	if (token) {
 		if (token.type == 'fieldRef') {
 			return new vscode.Location(document.uri, document.positionAt(token.defPos));
@@ -295,32 +305,59 @@ async function getReferences(document, position, applyToMatch) {
 }
 
 async function prepareRename(document, position) {
-	const obj = getMethodAtPosition(document, position); if (!obj) throw new Error();
-	const { fullName, method, methodName, module } = obj;
-	const doc = await vscode.workspace.openTextDocument(module.filePath);
-	return {
-		range: new vscode.Range(doc.positionAt(method.startPos), doc.positionAt(method.startPos + fullName.length)),
-		placeholder: methodName,
+	const token = tryGetPosTokenAtPosition(document, position);
+	if (token && /^(fieldRef|fieldDef)$/.test(token.type)) {
+		return;
+		// const pos = document.positionAt(token.startPos);
+		// return {
+		// 	range: new vscode.Range(pos, pos.translate(0, token.name.length)),
+		// 	placeholder: token.name,
+		// }
 	}
+
+	const obj = getMethodAtPosition(document, position);
+	if (!obj) throw new Error();
+	// const { fullName, method, methodName, module } = obj;
+	// const doc = await vscode.workspace.openTextDocument(module.filePath);
+	// return {
+	// 	range: new vscode.Range(doc.positionAt(method.startPos), doc.positionAt(method.startPos + fullName.length)),
+	// 	placeholder: methodName,
+	// }
 }
 
 async function provideRenameEdits(document, position, newName) {
 	if (!/[a-zA-Z0-9_]/.test(newName)) return;
-	const obj = getMethodAtPosition(document, position); if (!obj) return;
-	const { fullName, method, module, moduleName } = obj;
-	const references = moduleManager.getReferences(fullName, document.uri.fsPath);
-	if (fullName.includes("::")) newName = `${moduleName}::${newName}`;
-
+	let token = tryGetPosTokenAtPosition(document, position);
 	const edit = new vscode.WorkspaceEdit();
-	for (const [file, positions] of Object.entries(references)) {
-		const doc = await vscode.workspace.openTextDocument(file);
-		for (const pos of positions) {
-			edit.replace(doc.uri, new vscode.Range(doc.positionAt(pos), doc.positionAt(pos + fullName.length)), newName);
+	if (token && /^(fieldRef|fieldDef)$/.test(token.type)) {
+		if (token.type == 'fieldRef') {
+			token = tryGetPosToken(document, token.defPos);
+			if (!token || token.type !== 'fieldDef') return;
 		}
-	}
-	const doc = await vscode.workspace.openTextDocument(module.filePath);
+		for (const defPos of token.usage) {
+			const pos = document.positionAt(defPos);
+			edit.replace(document.uri, new vscode.Range(pos, pos.translate(0, token.name.length)), newName);
+		}
+		const pos = document.positionAt(token.startPos);
+		edit.replace(document.uri, new vscode.Range(pos, pos.translate(0, token.name.length)), newName);
+	} else {
+		const obj = getMethodAtPosition(document, position); if (!obj) return;
+		const { fullName, method, module, moduleName } = obj;
+		const references = moduleManager.getReferences(fullName, document.uri.fsPath);
+		if (fullName.includes("::")) newName = `${moduleName}::${newName}`;
 
-	edit.replace(doc.uri, new vscode.Range(doc.positionAt(method.startPos), doc.positionAt(method.startPos + fullName.length)), newName);
+		for (const [file, positions] of Object.entries(references)) {
+			const doc = await vscode.workspace.openTextDocument(file);
+			for (const pos of positions) {
+				edit.replace(doc.uri, new vscode.Range(doc.positionAt(pos), doc.positionAt(pos + fullName.length)), newName);
+			}
+		}
+		const doc = await vscode.workspace.openTextDocument(module.filePath);
+
+		edit.replace(doc.uri, new vscode.Range(doc.positionAt(method.startPos), doc.positionAt(method.startPos + fullName.length)), newName);
+	}
+
+	
 	return edit;
 }
 
