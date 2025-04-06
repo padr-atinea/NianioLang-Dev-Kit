@@ -40,6 +40,7 @@ function updateModule(document, checkIgnore = false) {
 	const staticDiagnostics = [];
 	let pos = 0;
 	let lineNumber = 1;
+	const closeBracketsToOpen = { ')': '(', '}': '{', ']': '[' };
 
 	const getPathLine = () => `${filePath}:${lineNumber} ${pos} '${text[pos]}'`;
 
@@ -68,10 +69,12 @@ function updateModule(document, checkIgnore = false) {
 		return text.slice(startPos, pos);
 	}
 
-	const chechKeywordVar = () => {
+	const chechKeywordVar = (errMsg = 'Expected keyword var') => {
 		skipWhiteChars();
-		const startvarWordPos = pos;
-		return getWord(startvarWordPos, 'Expected keyword var') == 'var';
+		const word = getWord(pos, errMsg);
+		if (word == 'var') return true;
+		pushDiag(pos - word.length, pos, errMsg);
+		return false;
 	}
 
 	const nextRealCharPos = (currentPos) => {
@@ -101,23 +104,26 @@ function updateModule(document, checkIgnore = false) {
 
 	const referenceUtils = {
 		tryAdd: (startPos) => {
-			if (startPos == undefined) {
+			let methodName;
+			if (startPos === undefined) {
 				startPos = pos;
-				getWord(startPos, 'Expected function or module name');
-			} else if (!/[a-zA-Z0-9_]/.test(text[startPos])) return false;
-
+				methodName = getWord(startPos, 'Expected function or module name');
+			} else {
+				if (!/[a-zA-Z0-9_]/.test(text[startPos])) return false;
+				methodName = text.slice(startPos, pos);
+			}
+			skipWhiteChars();
 			if (text[pos] == ':' && text[pos + 1] == ':') {
 				pos++; pos++;
+				skipWhiteChars();
 				if (!/[a-zA-Z0-9_]/.test(text[pos])) return true;
-				referenceUtils.add(getWord(startPos, 'Expected function name'), startPos);
-				return true;
+				methodName = `${methodName}::${getWord(pos, 'Expected function name')}`;
 			}
-			const endPos = pos;
 			if (text[startPos - 1] !== '@') {
 				skipWhiteChars();
 				if (text[pos] != '(') return true;
 			}
-			referenceUtils.add(text.slice(startPos, endPos), startPos);
+			referenceUtils.add(methodName, startPos);
 			return true;
 		},
 		add: (methodName, startPos) => {
@@ -144,17 +150,18 @@ function updateModule(document, checkIgnore = false) {
 
 	const getParamiters = () => {
 		pos++;
-		let depth = 1;
+		let depth = ['('];
 		const parameters = [];
 		let currentParam = { fieldName: null, startPos: null, type: null, startPosOfRef: null };
 		let startOfType = null;
-		const history = [{ depth, pos, in: true }];
 		whileRun(c => {
-			if (/\(|\{|\[/.test(c)) { depth++; pos++; history.push({ depth, pos, in: true }); }
+			if (/\(|\{|\[/.test(c)) { depth.push(c); pos++; }
 			else if (/\)|\}|\]/.test(c)) {
-				depth--;
-				history.push({ depth, pos, out: true });
-				if (depth === 0) {
+				if (closeBracketsToOpen[c] !== depth.pop()) {
+					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
+					return false;
+				}
+				if (depth.length === 0) {
 					if (currentParam.fieldName !== null) {
 						if (startOfType !== null) currentParam.type = text.slice(startOfType, pos);
 						parameters.push(currentParam);
@@ -163,8 +170,7 @@ function updateModule(document, checkIgnore = false) {
 					return true;
 				}
 				pos++;
-				if (depth < 0) return true;
-			} else if (depth === 1) {
+			} else if (depth.length === 1) {
 				if (c === ',') {
 					if (currentParam.fieldName === null) {
 						pushDiag(pos, pos, `Bad syntax - expected paramiter name`);
@@ -201,8 +207,7 @@ function updateModule(document, checkIgnore = false) {
 							pushDiag(pos, pos, `Bad syntax`);
 							pos++;
 						}
-					} else if (referenceUtils.tryAdd()) return;
-					else {
+					} else if (!referenceUtils.tryAdd()) {
 						pushDiag(pos, pos, `Bad syntax`);
 						pos++;
 					}
@@ -210,10 +215,6 @@ function updateModule(document, checkIgnore = false) {
 			} else if (/[a-zA-Z0-9_]/.test(c) && referenceUtils.tryAdd()) return;
 			else pos++;
 		});
-		if (depth != 0) {
-			pushDiag(pos, pos, `Bad syntax - expected closig ')' of paramiters`);
-			console.error('bad paramiters depth != 0', getPathLine());
-		}
 		return parameters;
 	}
 
@@ -223,20 +224,22 @@ function updateModule(document, checkIgnore = false) {
 		if (pos >= text.length || !/\s/.test(text[pos])) return '';
 		skipWhiteChars();
 		if (!/[@a-zA-Z0-9_]/.test(text[pos])) return '';
-		let depth = 0;
+		const depth = [];
 		const startingTypeOffset = pos;
 		whileRun(c => {
 			if (/\(|\{|\[/.test(c)) {
-				if (depth == 0 && c == '{') return true;
-				depth++;
+				if (depth.length == 0 && c == '{') return true;
+				depth.push(c);
 			}
-			else if (/\)|\}|\]/.test(c)) depth--;
+			else if (/\)|\}|\]/.test(c)) {
+				if (closeBracketsToOpen[c] !== depth.pop()) {
+					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
+					return false;
+				}
+			}
 			else if (/[a-zA-Z0-9_]/.test(c) && referenceUtils.tryAdd()) return;
 			pos++;
 		});
-		if (depth != 0) {
-			console.error('bad returnType depth != 0', getPathLine());
-		}
 		return text.slice(startingTypeOffset, pos);
 	}
 
@@ -246,10 +249,8 @@ function updateModule(document, checkIgnore = false) {
 			return '!!! bad syntax - no body !!!';
 		}
 		pos++;
-		let depth = 1;
-		let expectedScopeDepth = 1;
+		const depth = ['{'];
 		const startingBodyOffset = pos;
-		const chechForInternalBody = [];
 		const localEnv = getLocalEnv(parameters);
 
 		whileRun(c => {
@@ -257,29 +258,19 @@ function updateModule(document, checkIgnore = false) {
 			const nextRealPos = nextRealCharPos(pos + 1);
 			const nextRealChar = nextRealPos === null ? null : text[nextRealPos];
 			if (/\(|\{|\[/.test(c)) {
-				if (c == '{') {
-					if (chechForInternalBody.length > 0 && chechForInternalBody.at(-1) == depth) {
-						chechForInternalBody.pop();
-					}
-					if (localEnv.scopes.length == expectedScopeDepth) {
-						localEnv.scopes.push([]);
-						localEnv.releaseScopeBuffer();
-					}
-					expectedScopeDepth++;
-				}
-				depth++;
+				if (c == '{') localEnv.tryAddScope(depth.length);
+				depth.push(c);
 				pos++;
 			} else if (/\)|\}|\]/.test(c)) {
-				depth--;
+				if (closeBracketsToOpen[c] !== depth.pop()) {
+					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
+					return false;
+				}
 				pos++;
 				if (c == '}') {
-					for (const field of localEnv.scopes.pop()) {
-						delete localEnv.fields[field];
-					}
-					expectedScopeDepth--;
-					if (depth == 0) return true;
+					localEnv.tryCloseScope(depth.length);
+					if (depth.length == 0) return true;
 				}
-				if (depth <= 0) return false;
 			} else if (/[a-zA-Z0-9_]/.test(c)) {
 				const word = getWord(startWordPos);
 				const nextRealPos = nextRealCharPos(pos);
@@ -288,49 +279,43 @@ function updateModule(document, checkIgnore = false) {
 				if (nextRealPos + 1 < text.length && `${nextRealChar}${text[nextRealPos + 1]}` == '=>') {
 					skipWhiteChars(); pos++; pos++;
 				} else if (/^(var)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
-					localEnv.tryAddNew();
+					localEnv.tryAddNewDef({});
 				} else if (/^(fora|rep)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
 					if (!chechKeywordVar()) return;
-					chechForInternalBody.push(depth);
-					localEnv.tryAddNew(true);
+					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScope: false, addToScopeBuffer: true, addToScopeAfterRelease: true });
+					skipWhiteChars();
+					if (text[pos] != '(') pushDiag(pos, pos + 1, `Bad formated ${word} - expected (`);
 				} else if (/^for$/.test(word) && /\(/.test(nextRealChar)) {
 					skipWhiteChars();
-					pos++; depth++;
-					if (!chechKeywordVar()) return;
+					if (text[pos] != '(') { pushDiag(pos, pos + 1, `Bad formated ${word}`); return; }
+					pos++; depth.push('('); // skip (
+					skipWhiteChars();
+					if (text[pos] !== 'v' || getWord(pos) !== 'var') return; // no var
+					const nextRealPos = nextRealCharPos(pos);
+					if (nextRealPos === null || !/[a-zA-Z0-9_]/.test(text[nextRealPos])) return; // var is a variable
 					localEnv.scopes.push([]);
-					// chechForInternalBody.push(depth);
-					localEnv.tryAddNew();
+					localEnv.tryAddNewDef({ expectedDepth: depth.length - 1, addToScope: true, addToScopeBuffer: false, addToScopeAfterRelease: false });
 				} else if (/^forh$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
 					if (!chechKeywordVar()) return;
-					localEnv.tryAddNew(true);
+					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScope: false, addToScopeBuffer: true, addToScopeAfterRelease: true });
 					skipWhiteChars();
-					if (text[pos] != ',') {
-						pushDiag(pos, pos, `Bad syntax - expected ,`);
-						return;
-					}
-					pos++;
+					if (text[pos] != ',') { pushDiag(pos, pos, `Bad syntax - expected ,`); return; }
+					pos++; // skip ,
 					if (!chechKeywordVar()) return;
-					chechForInternalBody.push(depth);
-					localEnv.tryAddNew(true);
+					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScope: false, addToScopeBuffer: true, addToScopeAfterRelease: true });
 				} else if (/^(case)$/.test(word) && /:/.test(nextRealChar)) {
 					skipWhiteChars(); pos++; skipWhiteChars();
 					getWord(pos, 'Expected variant name'); skipWhiteChars();
-					if (text[pos] == '{') return;
-					if (text[pos] != '(') {
-						pushDiag(pos, pos + 1, `Bad formated variant`);
-						return;
-					}
-					depth++; pos++;
+					if (text[pos] == '{') return; // no internal value
+					if (text[pos] != '(') { pushDiag(pos, pos + 1, `Bad formated variant`); return; }
+					depth.push('('); pos++; // skip (
 					if (!chechKeywordVar()) return;
-					localEnv.tryAddNew(true);
+					localEnv.tryAddNewDef({ expectedDepth: depth.length - 1, addToScope: false, addToScopeBuffer: true, addToScopeAfterRelease: true });
 					skipWhiteChars();
-					if (text[pos] != ')') {
-						pushDiag(startVariablePos, pos, `Bad formated variant`);
-						return;
-					}
-					depth--; pos++;
+					if (text[pos] != ')') { pushDiag(startVariablePos, pos, `Bad formated variant`); return; }
+					depth.pop(); pos++; // skip )
 				} else if (/^\d+$/.test(word)) return;
-				else if (/^(as|is)$/.test(word) && /:/.test(nextRealChar)) return;
+				else if (/^(as|is|unless|if)$/.test(word) && /:/.test(nextRealChar)) return;
 				else if (/^(else|loop)$/.test(word) && /\{/.test(nextRealChar)) return;
 				else if (/^(true|false)$/.test(word)) return;
 				else if (/^(def)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) return true;
@@ -338,31 +323,29 @@ function updateModule(document, checkIgnore = false) {
 				else if (/^(for|match|die|if|unless|elsif|while)$/.test(word) && /\(/.test(nextRealChar)) return;
 				else if (/^(die|break|continue|return)$/.test(word) && /;/.test(nextRealChar)) return;
 				else if (/^(die|break|continue|return|while|unless|if|ensure|try|ref)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) return;
-				else if (/^(unless|if)$/.test(word) && /!|\+/.test(nextRealChar)) return;
+				else if (/^(unless|if)$/.test(word) && /!|\+|'/.test(nextRealChar)) return;
 				else if ((nextRealPos + 1 < text.length && /::/.test(`${nextRealChar}${text[nextRealPos + 1]}`)) || /\(/.test(nextRealChar)) referenceUtils.tryAdd(startWordPos);
-				else localEnv.addRef(word, startWordPos);
+				else localEnv.tryAddRef(word, startWordPos, depth.length);
 			} else if (c == ':' && /[a-zA-Z0-9_]/.test(nextRealChar)) {
-				pos++; skipWhiteChars(); getWord(pos, 'Expected variant name');
+				pos++; skipWhiteChars();
+				const startPos = pos;
+				const startLine = lineNumber;
+				if (!/[a-zA-Z0-9_]/.test(text[pos])) return;
+				while (pos < text.length && /[a-zA-Z0-9_]/.test(text[pos])) pos++;
+				const word = text.slice(startPos, pos);
+				skipWhiteChars();
+				if (text[pos] == ':' && text[pos+1] == ':') {
+					pos = startPos;
+					lineNumber = startLine;
+				}
 			} else if (c == '-' && pos + 1 < text.length && text[pos + 1] == '>') {
 				pos++; pos++; skipWhiteChars(); getWord(pos, 'Expected property name');
 			} else if (c == '@') {
-				pos++;
-				referenceUtils.tryAdd();
+				pos++; referenceUtils.tryAdd();
 			} else if (c == ';') {
-				if (chechForInternalBody.length > 0 && chechForInternalBody.at(-1) == depth) {
-					localEnv.releaseScopeBuffer(false);
-					chechForInternalBody.pop();
-				}
-
-				staticDiagnostics.push(...Object.values(localEnv.waitingErrors).flat());
-				localEnv.waitingErrors = {};
-				pos++;
+				localEnv.tryReleaseScopeBuffer(depth.length); pos++;
 			} else pos++;
 		});
-		if (depth != 0) {
-			pushDiag(pos, pos, `Bad syntax`);
-			console.error('bad body depth != 0', getPathLine(), text.slice(pos - 5, pos + 5));
-		}
 		return text.slice(startingBodyOffset, pos);
 	}
 
@@ -385,81 +368,99 @@ function updateModule(document, checkIgnore = false) {
 
 	const getLocalEnv = (parameters) => {
 		const localEnv = {
-			fields: {},
+			fieldsPos: {},
 			scopes: [[]],
 			scopeBuffer: {},
 			waitingErrors: {},
-			tryAddNew(addToBuffer = false) {
+			waitingForNewScope: [],
+			pushWaitingErrors(message, code, fieldName, startPos) {
+				this.waitingErrors[fieldName].push(getDiag(startPos, pos, message, code, vscode.DiagnosticSeverity.Error, [startPos]));
+			},
+			tryAddNewDef({ expectedDepth = null, addToScope = true, addToScopeBuffer = false, addToScopeAfterRelease = true}) {
 				skipWhiteChars();
 				const startPos = pos;
 				const fieldName = getWord(startPos, 'Expected field name');
-
-				if (fieldName in this.scopeBuffer || fieldName in this.fields) {
+				if (fieldName in this.scopeBuffer || fieldName in this.fieldsPos) {
 					if (!(fieldName in this.waitingErrors)) this.waitingErrors[fieldName] = [];
-					this.waitingErrors[fieldName].push(getDiag(startPos, pos, 
-						`Redeclaration of variable ${(this.scopeBuffer[fieldName] ?? this.fields[fieldName]).startPos}`,
-						'redeclarationOfVariable',
-						vscode.DiagnosticSeverity.Error, [startPos]
-					));
-				} else {
-					this.addNew(fieldName, { startPos }, !addToBuffer);
-				
-					if (addToBuffer) {
-						this.scopeBuffer[fieldName] = { startPos };
-						if (fieldName in this.waitingErrors) {
-							for (const diag of this.waitingErrors[fieldName]) {
-								const sPos = diag.tags[0];
-								positions[sPos] = { type: 'fieldRef', name: fieldName, defPos: startPos };
-								positions[startPos].usage.push(sPos);
-								if (showDebugInfo) {
-									diag.message = startPos;
-									diag.code = 'test';
-									diag.severity = vscode.DiagnosticSeverity.Information;
-								}
-							}
-
-							if (!showDebugInfo) delete this.waitingErrors[fieldName];
-						}
-					}
+					this.pushWaitingErrors(`Redeclaration of variable ${this.scopeBuffer[fieldName] ?? this.fieldsPos[fieldName]}`, 'redeclarationOfVariable', fieldName, startPos);
+					return;
 				}
+				if (addToScope) this.addNewDef(fieldName, startPos);
+				if (addToScopeBuffer) this.scopeBuffer[fieldName] = startPos;
+				if (expectedDepth === null) return;
+				if (this.waitingForNewScope.length > 0 && this.waitingForNewScope.at(-1).depth == expectedDepth) return;
+				this.waitingForNewScope.push({ depth: expectedDepth, addToScopeAfterRelease });
 			},
-			addNew(fieldName, field, addToScope = true) {
-				if (addToScope) {
-					this.fields[fieldName] = field;
-					this.scopes.at(-1).push(fieldName);
-				}
-				if (!(field.startPos in positions)) positions[field.startPos] = { type: 'fieldDef', name: fieldName, usage: [] };
-				if (showDebugInfo) pushDiag(
-					field.startPos, field.startPos + fieldName.length,
-					'Root ' + field.startPos + ' scope depth: ' + this.scopes.length,
-					'test', vscode.DiagnosticSeverity.Warning
-				);
-			},
-			addRef(fieldName, startPos) {
-				if (fieldName in this.fields) {
-					if (showDebugInfo) pushDiag(
-						startPos, pos,
-						this.fields[fieldName].startPos,
-						'test', vscode.DiagnosticSeverity.Information
+			addNewDefToPosition(fieldName, fieldPos) {
+				if (!(fieldPos in positions)) positions[fieldPos] = { type: 'fieldDef', name: fieldName, startPos: fieldPos, usage: [] };
+				if (showDebugInfo) {
+					positions[fieldPos].scope = JSON.parse(JSON.stringify(this.scopes));
+					pushDiag(
+						fieldPos, fieldPos + fieldName.length,
+						'Root ' + fieldPos,
+						'test', vscode.DiagnosticSeverity.Warning
 					);
-					positions[startPos] = { type: 'fieldRef', name: fieldName, defPos: this.fields[fieldName].startPos };
-					positions[this.fields[fieldName].startPos].usage.push(startPos);
-				} else {
-					if (!(fieldName in this.waitingErrors)) this.waitingErrors[fieldName] = [];
-					this.waitingErrors[fieldName].push(getDiag(startPos, pos, 
-						`Variable not declared`, 'variableNotDeclared',
-						vscode.DiagnosticSeverity.Error, [startPos]
-					));
 				}
 			},
-			releaseScopeBuffer(addToScope = true) {
-				for (const [fieldName, field] of Object.entries(this.scopeBuffer)) {
-					this.addNew(fieldName, field, addToScope);
+			addNewDef(fieldName, fieldPos) {
+				this.fieldsPos[fieldName] = fieldPos;
+				this.addNewDefToPosition(fieldName, fieldPos);
+				this.scopes.at(-1).push(fieldName);
+			},
+			tryAddRef(fieldName, startPos, depth) {
+				if (fieldName in this.fieldsPos) this.addRef(fieldName, startPos, this.fieldsPos[fieldName], depth);
+				else {
+					if (!(fieldName in this.waitingErrors)) this.waitingErrors[fieldName] = [];
+					this.pushWaitingErrors(`Variable not declared${showDebugInfo ? ` at depth ${depth}, depth scope ${this.scopes.length}` : ''}`, 'variableNotDeclared', fieldName, startPos);
 				}
+			},
+			addRef(fieldName, startPos, defPos, depth) {
+				positions[startPos] = { type: 'fieldRef', name: fieldName, startPos, def: positions[defPos] };
+				positions[defPos].usage.push(startPos);
+				if (showDebugInfo) {
+					pushDiag(startPos, startPos, startPos + fieldName.length, 'test', vscode.DiagnosticSeverity.Information);
+					positions[startPos].scope = JSON.parse(JSON.stringify(this.scopes));
+					positions[startPos].depth = depth;
+				}
+			},
+			tryAddScope(depth) {
+				if (this.waitingForNewScope.length == 0) { this.scopes.push([]); return; } 
+				if (this.waitingForNewScope.at(-1).depth != depth) return;
+				if (!this.waitingForNewScope.pop().addToScopeAfterRelease) return;
+				this.scopes.push([]);
+				for (const [fieldName, field] of Object.entries(this.scopeBuffer)) this.addNewDef(fieldName, field);
 				this.scopeBuffer = {};
 			},
+			tryReleaseScopeBuffer(depth) {
+				if (this.waitingForNewScope.length > 0 
+					&& this.waitingForNewScope.at(-1).depth === depth 
+					&& this.waitingForNewScope.pop().addToScopeAfterRelease) {
+					for (const [fieldName, fieldPos] of Object.entries(this.scopeBuffer)) {
+						this.addNewDefToPosition(fieldName, fieldPos);
+						if (fieldName in this.waitingErrors) {
+							for (const diag of this.waitingErrors[fieldName]) {
+								this.addRef(fieldName, diag.tags[0], fieldPos, depth);
+							}
+							delete this.waitingErrors[fieldName];
+						}
+						delete this.scopeBuffer[fieldName];
+					}
+				}
+				staticDiagnostics.push(...Object.values(this.waitingErrors).flat());
+				this.waitingErrors = {};
+			},
+			tryCloseScope(depth) {
+				if (this.waitingForNewScope.length != 0 && this.waitingForNewScope.at(-1) != depth) return;
+				if (depth !== 0 && this.scopes.length == 1) {
+					pushDiag(pos - 1, pos, 'Bad scope');
+					return;
+				}
+				for (const field of this.scopes.pop()) {
+					delete this.fieldsPos[field];
+				}
+			},
 		};
-		for (const { fieldName, startPos } of parameters) localEnv.addNew(fieldName, { usage: [], startPos });
+		for (const { fieldName, startPos } of parameters) localEnv.addNewDef(fieldName, startPos);
 		return localEnv;
 	}
 
@@ -539,11 +540,6 @@ function updateModule(document, checkIgnore = false) {
 			const startModulePos = pos;
 			pos++;
 			const word = getWord(startModulePos, 'Expected module name');
-			if (word in usedModules) {
-				pushDiag(startPos, pos, `Module '${word}' usage is duplicated`, 'duplicatedImport', vscode.DiagnosticSeverity.Warning);
-			} else {
-				usedModules[word] = { count: 0, startPos: startPos, endPos: pos };
-			}
 
 			skipWhiteChars();
 
@@ -551,6 +547,12 @@ function updateModule(document, checkIgnore = false) {
 				pushDiag(startModulePos + word.length, pos, `Missing semicolon`);
 			} else {
 				pos++;
+			}
+
+			if (word in usedModules) {
+				pushDiag(startPos, pos, `Module '${word}' usage is duplicated`, 'duplicatedImport', vscode.DiagnosticSeverity.Warning);
+			} else {
+				usedModules[word] = { count: 0, startPos: startPos, endPos: pos };
 			}
 
 			lastUseStatementPos = pos;
@@ -632,4 +634,4 @@ const getReferences = (functionName, filePath) => functionName.includes("::")
 
 const getReferencesBack = (filePath) => referenceBackCache[filePath] ?? {}
 
-module.exports = { updateModule, removeModule, getModule, moduleCache, findFiles, getReferences, updateIgnore, getReferencesBack };
+module.exports = { updateModule, removeModule, getModule, moduleCache, findFiles, getReferences, updateIgnore, getReferencesBack, showDebugInfo };

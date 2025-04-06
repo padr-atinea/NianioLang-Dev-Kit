@@ -29,23 +29,23 @@ function tryGetPosToken(document, pos) {
 	const filePath = document.fileName;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const thisModule = moduleManager.getModule(thisModuleName);
-	const token = thisModule.positions[pos];
-	if (token) token.startPos = pos;
 	return thisModule.positions[pos];
 }
 
 function tryGetPosTokenAtPosition(document, position) {
 	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
-	return tryGetPosToken(document, document.offsetAt(range.start));
+	const token = tryGetPosToken(document, document.offsetAt(range.start));
+	if (token) token.range = range;
+	return token;
 }
 
 async function provideDefinition(document, position) {
 	const token = tryGetPosTokenAtPosition(document, position);
 	if (token) {
 		if (token.type == 'fieldRef') {
-			return new vscode.Location(document.uri, document.positionAt(token.defPos));
-		} else if (token.type == 'fieldDef' && token.usage.length == 1) {
-			return new vscode.Location(document.uri, document.positionAt(token.usage[0]));
+			return new vscode.Location(document.uri, document.positionAt(token.def.startPos));
+		} else if (token.type == 'fieldDef') {
+			return token.usage.map(usage => new vscode.Location(document.uri, document.positionAt(usage)));
 		} else if (token.type == 'methodDef') {
 			const references = moduleManager.getReferences(token.name, filePath);
 			if (Object.values(references).flat().length == 1) {
@@ -195,7 +195,7 @@ class NianioLangCodeActionProvider {
 					actions.push(action);
 				}
 
-			} else if (diagnostic.code === 'duplicatedImport') {
+			} else if (diagnostic.code === 'duplicatedImport' || diagnostic.code === 'notUsedImport') {
 				const endPos = document.getText()[document.offsetAt(diagnostic.range.end)] == '\n'
 					? diagnostic.range.end.translate(1, -diagnostic.range.end.character)
 					: diagnostic.range.end
@@ -207,7 +207,7 @@ class NianioLangCodeActionProvider {
 				action.edit = edit;
 				action.diagnostics = [diagnostic];
 				actions.push(action);
-				if (diagnosticsDuplicates['duplicatedImport'] > 1) {
+				if ((diagnosticsDuplicates['duplicatedImport'] ?? 0) + (diagnosticsDuplicates['notUsedImport'] ?? 0) > 1) {
 					const fileAction = new vscode.CodeAction("Remove all unnecessary usings in this file", vscode.CodeActionKind.QuickFix);
 					fileAction.command = {
 						command: "extension.removeAllUsingsInFile",
@@ -229,7 +229,7 @@ class NianioLangCodeActionProvider {
 					action.edit = edit;
 					action.diagnostics = [diagnostic];
 					actions.push(action);
-					if (diagnosticsDuplicates['duplicatedImport'] > 1) {
+					if (diagnosticsDuplicates['moduleNameNotEqualFileName'] > 1) {
 						const fileAction = new vscode.CodeAction("Fix all incorret names", vscode.CodeActionKind.QuickFix);
 						fileAction.command = {
 							command: "extension.fixAllIncorretNames",
@@ -247,12 +247,12 @@ class NianioLangCodeActionProvider {
 
 function addImport(moduleName, uri) {
 	vscode.workspace.openTextDocument(uri).then((document) => {
-		if (moduleName === path.basename(document.fileName, path.extname(document.fileName))) return;
+		const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
+		if (moduleName === thisModuleName) return;
 		const edit = new vscode.WorkspaceEdit();
-		const module = moduleManager.getModule(moduleName);
-		if (!module) return;
-		const insertPosition = document.positionAt(module.lastUseStatementPos);
-		edit.insert(document.uri, insertPosition, `use ${moduleName};\n`);
+		const thisModule = moduleManager.getModule(thisModuleName);
+		if (!thisModule) return;
+		edit.insert(document.uri, document.positionAt(thisModule.lastUseStatementPos), `\nuse ${moduleName};`);
 		vscode.workspace.applyEdit(edit);
 	});
 }
@@ -276,6 +276,15 @@ function makeMethodPublic(moduleName, functionName) {
 }
 
 function provideHover(document, position) {
+	if (moduleManager.showDebugInfo) {
+		const token = tryGetPosTokenAtPosition(document, position);
+		if (token && /^(fieldRef|fieldDef)$/.test(token.type)) {
+			const md = new vscode.MarkdownString();
+			const range = token.range; delete token.range;
+			md.appendCodeblock(JSON.stringify(token), 'json');
+			return new vscode.Hover(md, range);
+		}
+	}
 	const obj = getMethodAtPosition(document, position); if (!obj) return;
 	const { module, method, methodName, moduleName, range, isPublic } = obj;
 	if (module.filePath == document.fileName && method.startPos == document.offsetAt(range.start)) return;
@@ -330,10 +339,7 @@ async function provideRenameEdits(document, position, newName) {
 	let token = tryGetPosTokenAtPosition(document, position);
 	const edit = new vscode.WorkspaceEdit();
 	if (token && /^(fieldRef|fieldDef)$/.test(token.type)) {
-		if (token.type == 'fieldRef') {
-			token = tryGetPosToken(document, token.defPos);
-			if (!token || token.type !== 'fieldDef') return;
-		}
+		if (token.type == 'fieldRef') token = token.def;
 		for (const defPos of token.usage) {
 			const pos = document.positionAt(defPos);
 			edit.replace(document.uri, new vscode.Range(pos, pos.translate(0, token.name.length)), newName);
@@ -372,7 +378,7 @@ async function removeAllUsingsInFile(uri) {
 	const diagnostics = vscode.languages.getDiagnostics(document.uri);
 	const edit = new vscode.WorkspaceEdit();
 	for (const diagnostic of diagnostics) {
-		if (diagnostic.code !== 'duplicatedImport') continue;
+		if (diagnostic.code !== 'duplicatedImport' && diagnostic.code !== 'notUsedImport') continue;
 		const text = document.getText();
 		const charAtEnd = text[document.offsetAt(diagnostic.range.end)];
 		const endPos = charAtEnd === '\n'
