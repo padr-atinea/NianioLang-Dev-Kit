@@ -47,11 +47,16 @@ async function provideDefinition(document, position) {
 		} else if (token.type == 'fieldDef') {
 			return token.usage.map(usage => new vscode.Location(document.uri, document.positionAt(usage)));
 		} else if (token.type == 'methodDef') {
-			const references = moduleManager.getReferences(token.name, filePath);
-			if (Object.values(references).flat().length == 1) {
-				const [file, positions] = Object.entries(references)[0];
-				const targetDoc = await vscode.workspace.openTextDocument(file);
-				return new vscode.Location(targetDoc.uri, targetDoc.positionAt(positions[0]));
+			const references = moduleManager.getReferences(token.name, document.fileName);
+			if (Object.values(references).flat().length > 0) {
+				const locations = [];
+				for (const [file, positions] of Object.entries(references)) {
+					const doc = await vscode.workspace.openTextDocument(file);
+					for (const pos of positions) {
+						locations.push(new vscode.Location(doc.uri, doc.positionAt(pos)));
+					}
+				}
+				return locations;
 			}
 		}
 	}
@@ -428,7 +433,7 @@ class ReferenceCounterCodeLensProvider {
 		for (const [methodName, method] of newLocal) {
 			const references = moduleManager.getReferences(method.isPrivate ? methodName : `${moduleName}::${methodName}`, filePath);
 			const length = Object.values(references).flat().length;
-			const pos = document.positionAt(method.startDefPos);
+			const pos = document.positionAt(method.startPos);
 			const range = new vscode.Range(pos, pos);
 			lenses.push(new vscode.CodeLens(range, {
 				title: `${length} reference${length === 1 ? '' : 's'}`,

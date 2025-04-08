@@ -2,11 +2,15 @@
     "name": "nianiolang-dev-kit",
     "displayName": "NianioLang Dev Kit",
     "description": "",
-    "version": "0.3.4",
+    "version": "0.3.5",
     "publisher": "padr",
     "engines": {
         "vscode": "^1.98.0"
     },
+	"scripts": {
+		"package": "vsce package",
+		"install": "code --install-extension $(ls -t *.vsix | head -n 1)"
+	},
     "main": "./src/extension.js",
     "activationEvents": [
         "onCommand:nianiolang.makeMethodPublic",
