@@ -600,7 +600,7 @@ function updateModule(document, checkIgnore = false) {
 		}
 	}
 
-	moduleCache[thisModuleName] = { filePath, privateMethods, publicMethods, staticDiagnostics, lastUseStatementPos, positions }
+	moduleCache[thisModuleName] = { filePath, privateMethods, publicMethods, staticDiagnostics, lastUseStatementPos, usedModules, positions }
 }
 
 function removeModule(filePath, checkIgnore = false) {

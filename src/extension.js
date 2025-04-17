@@ -256,8 +256,8 @@ function addImport(moduleName, uri) {
 		if (moduleName === thisModuleName) return;
 		const edit = new vscode.WorkspaceEdit();
 		const thisModule = moduleManager.getModule(thisModuleName);
-		if (!thisModule) return;
-		edit.insert(document.uri, document.positionAt(thisModule.lastUseStatementPos), `\nuse ${moduleName};`);
+		if (!thisModule || moduleName in thisModule.usedModules) return;
+		edit.insert(document.uri, document.positionAt(thisModule.lastUseStatementPos), `${thisModule.lastUseStatementPos == 0 ? '' : '\n'}use ${moduleName};`);
 		vscode.workspace.applyEdit(edit);
 	});
 }
