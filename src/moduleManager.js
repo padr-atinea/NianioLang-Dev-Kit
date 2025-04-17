@@ -578,7 +578,7 @@ function updateModule(document, checkIgnore = false) {
 				}
 			} else {
 				if (methodDef.methodName in publicMethods) {
-					pushDiag(methodDef.startPos, methodDef.startPos + methodDef.methodName.length,
+					pushDiag(methodDef.startPos + thisModuleName.length + 2, methodDef.startPos + thisModuleName.length + 2 + methodDef.methodName.length,
 						`Duplicated public method name '${methodDef.methodName}'`,
 						'duplicatedMethodDef',
 					);
