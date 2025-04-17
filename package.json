@@ -2,7 +2,7 @@
     "name": "nianiolang-dev-kit",
     "displayName": "NianioLang Dev Kit",
     "description": "",
-    "version": "0.3.5",
+    "version": "0.3.7",
     "publisher": "padr",
     "engines": {
         "vscode": "^1.98.0"

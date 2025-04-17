@@ -28,6 +28,7 @@ function checkFileIgnore(filePath) {
 const showDebugInfo = false;
 
 function updateModule(document, checkIgnore = false) {
+	if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return;
 	const filePath = document.uri.fsPath;
 	const text = document.getText();
 	if (checkIgnore && checkFileIgnore(filePath)) return;

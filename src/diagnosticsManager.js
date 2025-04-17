@@ -62,7 +62,7 @@ function updateAllOpenTabs(document) {
 }
 
 function updateDiagnostics(document) {
-	if (document.languageId !== 'nianiolang') return;
+	if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return;
 	try {
 		const text = document.getText();
 		const fileName = document.fileName;

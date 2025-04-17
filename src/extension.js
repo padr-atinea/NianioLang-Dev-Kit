@@ -424,6 +424,7 @@ class ReferenceCounterCodeLensProvider {
 	}
 
 	async provideCodeLenses(document) {
+		if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return [];
 		const filePath = document.uri.fsPath;
 		const moduleName = path.basename(filePath, path.extname(filePath));
 		const module = moduleManager.getModule(moduleName);
@@ -512,7 +513,9 @@ async function activate(context) {
 	// context.subscriptions.push(vscode.commands.registerCommand('nianiolang.moduleNameNotEqualFileName', moduleNameNotEqualFileName));
 	context.subscriptions.push(vscode.commands.registerCommand('extension.removeAllUsingsInFile', removeAllUsingsInFile));
 	context.subscriptions.push(vscode.commands.registerCommand('extension.fixAllIncorretNames', fixAllIncorretNames));
-	context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => event.files.forEach(fixAllIncorretNamesWhenRename)));
+	context.subscriptions.push(vscode.workspace.onDidRenameFiles(event => 
+		event.files.forEach(fixAllIncorretNamesWhenRename)
+	));
 	context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
 		moduleManager.updateModule(event.document, true);
 		codeLensProvider._onDidChangeCodeLenses.fire();
