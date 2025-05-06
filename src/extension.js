@@ -45,7 +45,7 @@ async function provideDefinition(document, position) {
 		if (token.type == 'fieldRef') {
 			return new vscode.Location(document.uri, document.positionAt(token.def.startPos));
 		} else if (token.type == 'fieldDef') {
-			return token.usage.map(usage => new vscode.Location(document.uri, document.positionAt(usage)));
+			return token.usage.map(usage => new vscode.Location(document.uri, new vscode.Range(document.positionAt(usage), document.positionAt(usage + token.name.length))));
 		} else if (token.type == 'methodDef') {
 			const references = moduleManager.getReferences(token.name, document.fileName);
 			if (Object.values(references).flat().length > 0) {
@@ -53,11 +53,16 @@ async function provideDefinition(document, position) {
 				for (const [file, positions] of Object.entries(references)) {
 					const doc = await vscode.workspace.openTextDocument(file);
 					for (const pos of positions) {
-						locations.push(new vscode.Location(doc.uri, doc.positionAt(pos)));
+						locations.push(new vscode.Location(doc.uri, new vscode.Range(doc.positionAt(pos), doc.positionAt(pos + token.name.length))));
 					}
 				}
 				return locations;
 			}
+		} else if (token.type == 'useStatement') {
+			const module = moduleManager.getModule(token.name);
+			if (!module) return;
+			const doc = await vscode.workspace.openTextDocument(module.filePath);
+			return new vscode.Location(doc.uri, new vscode.Position(0, 0));
 		}
 	}
 	
@@ -70,31 +75,65 @@ async function provideDefinition(document, position) {
 
 const printParam = (param) => `${param.startPosOfRef === null ? '' : 'ref '}${param.fieldName}${param.type === null ? '' : ` : ${param.type}`}`;
 
-function provideCompletionItems(document, position) {
+const printMethod = (moduleName, methodName, method, isPublic = true) => `${isPublic ? `${moduleName}::` : ''}${methodName}(${method.parameters.map(printParam)})${method.returnType.length > 0 ? ` : ${method.returnType}` : ''}`
+
+const parseBody = (body) => body.slice(1, -1).trim().split('\n').map(line => line.replace(/^\t/, '')).join('\n');
+
+async function provideCompletionItems(document, position) {
 	const line = document.lineAt(position);
 	const text = line.text.substring(0, position.character);
 	const publicMatch = text.match(/([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
-	const isPrivate = publicMatch == null;
-	let moduleName = publicMatch[1];
-	if (isPrivate) {
+
+	if (publicMatch == null) {
 		const privateMatch = text.match(/([a-zA-Z0-9_]+)$/);
 		if (!privateMatch) return [];
-		moduleName = path.basename(document.fileName, path.extname(document.fileName));
+
+		const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
+		const thisModule = moduleManager.getModule(thisModuleName);
+
+		const methods = Object.entries(thisModule.privateMethods).map(([methodName, method]) => {
+			const item = new vscode.CompletionItem(methodName, vscode.CompletionItemKind.Function);
+			const shortDef = printMethod(thisModuleName, methodName, method, false);
+			item.detail = shortDef;
+			item.insertText = new vscode.SnippetString(method.parameters.length > 0 ? `${methodName}($0)` : `${methodName}()`);
+			const md = new vscode.MarkdownString();
+			md.appendCodeblock(`def ${shortDef} ${method.body}`, 'nianiolang');
+			item.documentation = md;
+			return item;
+		});
+		const thisPos = document.offsetAt(position);
+		const fields = Object.values(thisModule.positions)
+			.filter((pos) => pos.type == 'fieldDef' && thisPos > pos.startPos + pos.name.length + 1 && thisPos < pos.endOfScope)
+			.map((pos) => {
+				const item = new vscode.CompletionItem(pos.name, vscode.CompletionItemKind.Field);
+				item.detail = `type: ${pos.nlType ?? 'unknown'}`;
+				item.insertText = new vscode.SnippetString(pos.name);
+				if (pos.nlType === null) return item;
+				const nlType = pos.nlType[0] == '@' ? pos.nlType.slice(1) : pos.nlType.split('(')[0];
+				const parts = nlType.split('::');
+				if (parts.length !== 2) return item;
+				const typeModule = moduleManager.getModule(parts[0]);
+				if (!typeModule || !(parts[1] in typeModule.publicMethods)) return item;
+				const md = new vscode.MarkdownString();
+				md.appendCodeblock(parseBody(typeModule.publicMethods[parts[1]].body), 'nianiolang');
+				item.documentation = md;
+				return item;
+			});
+
+		return [...methods, ...fields];
 	}
 
-	const module = moduleManager.getModule(moduleName);
-	const methods = isPrivate ? module.privateMethods : module.publicMethods;
-	return Object.entries(methods).map(([methodName, method]) => {
+	const moduleName = publicMatch[1];
+	const module = moduleManager.getModule(publicMatch[1]);
+	if (!module) return;
+	return Object.entries(module.publicMethods).map(([methodName, method]) => {
 		const item = new vscode.CompletionItem(methodName, vscode.CompletionItemKind.Function);
-		const shortDef = method.returnType.length > 0 ?
-			`def ${moduleName}::${methodName}(${method.parameters.map(printParam)}) : ${method.returnType}` :
-			`def ${moduleName}::${methodName}(${method.parameters.map(printParam)})`;
-		const fullDef = `${shortDef} ${method.body}`;
+		const shortDef = printMethod(moduleName, methodName, method);
 		item.detail = shortDef;
 		item.insertText = new vscode.SnippetString(method.parameters.length > 0 ? `${methodName}($0)` : `${methodName}()`);
 		item.command = { command: 'nianiolang.addImportAndTriggerSignatureHelp', title: 'Add Import and Show Signature Help', arguments: [moduleName, document.uri] };
 		const md = new vscode.MarkdownString();
-		md.appendCodeblock(fullDef, 'nianiolang');
+		md.appendCodeblock(`def 	${shortDef} ${method.body}`, 'nianiolang');
 		item.documentation = md;
 		return item;
 	});
@@ -281,7 +320,7 @@ function makeMethodPublic(moduleName, functionName) {
 }
 
 function provideHover(document, position) {
-	if (moduleManager.showDebugInfo) {
+	if (moduleManager.showDebugHoverInfo) {
 		const token = tryGetPosTokenAtPosition(document, position);
 		if (token && /^(fieldRef|fieldDef)$/.test(token.type)) {
 			const md = new vscode.MarkdownString();
@@ -298,24 +337,10 @@ function provideHover(document, position) {
 	// const references = moduleManager.getReferences(fullName, module.filePath);
 	// const referencesLength = Object.values(references).flat().length;
 	// md.appendMarkdown(`${referencesLength} reference${referencesLength === 1 ? '' : 's'}`);
-	const def = `def ${isPublic ? `${moduleName}::` : ''}${methodName}(${method.parameters.map(printParam)}) ${method.returnType.length > 0 ? `: ${method.returnType}` : ``} ${method.body}`;
+	const def = `def ${printMethod(moduleName, methodName, method, isPublic)} ${method.body}`;
 	md.appendCodeblock(def, 'nianiolang');
 
 	return new vscode.Hover(md, range);
-}
-
-async function getReferences(document, position, applyToMatch) {
-	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
-	if (!range) return;
-	const symbol = document.getText(range);
-	const references = moduleManager.getReferences(symbol, document.uri.fsPath);
-
-	for (const [file, positions] of Object.entries(references)) {
-		const doc = await vscode.workspace.openTextDocument(file);
-		for (const pos of positions) {
-			applyToMatch(doc, doc.positionAt(pos));
-		}
-	}
 }
 
 async function prepareRename(document, position) {
@@ -374,7 +399,16 @@ async function provideRenameEdits(document, position, newName) {
 
 async function provideReferences(document, position) {
 	const locations = [];
-	await getReferences(document, position, (doc, pos) => locations.push(new vscode.Location(doc.uri, pos)));
+	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
+	if (!range) return;
+	const symbol = document.getText(range);
+	const references = moduleManager.getReferences(symbol, document.uri.fsPath);
+	for (const [file, positions] of Object.entries(references)) {
+		const doc = await vscode.workspace.openTextDocument(file);
+		for (const pos of positions) {
+			locations.push(new vscode.Location(doc.uri, new vscode.Range(doc.positionAt(pos), doc.positionAt(pos + symbol.length))));
+		}
+	}
 	return locations;
 }
 

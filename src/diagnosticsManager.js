@@ -77,7 +77,9 @@ function updateDiagnostics(document) {
 			const diag = new vscode.Diagnostic(
 				new vscode.Range(document.positionAt(method.startDefPos), document.positionAt(method.endPos)),
 				'Unused method',
-				vscode.DiagnosticSeverity.Hint
+				method.isPrivate 
+					? vscode.DiagnosticSeverity.Warning
+					: vscode.DiagnosticSeverity.Hint
 			);
 			diag.tags = [vscode.DiagnosticTag.Unnecessary];
 			diagnosticsList.push(diag);

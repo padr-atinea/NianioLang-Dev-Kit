@@ -45,7 +45,7 @@
 		"references": {
 			"patterns": [
 				{
-					"match": "(@[a-zA-Z:()_0-9]+)",
+					"match": "(@[a-zA-Z:_0-9]+)",
 					"name": "variable.name"
 				}
 			]
@@ -118,7 +118,7 @@
 		"functions": {
 			"patterns": [
 				{
-					"match": "\\b(?<!var\\s+)([a-zA-Z0-9_]+\\s*\\()",
+					"match": "\\b(?<!var\\s+)([a-zA-Z0-9_]+\\s*)\\(",
 					"name": "entity.name.function"
 				}
 			]
