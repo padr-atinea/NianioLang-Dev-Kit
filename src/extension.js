@@ -3,6 +3,8 @@ const path = require('path');
 const moduleManager = require('./moduleManager');
 const diagnosticsManager = require('./diagnosticsManager');
 
+const funcRegex = /(?<!(:|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
+
 function getMethod(fullName, filePath) {
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const isPublic = fullName.includes("::");
@@ -17,7 +19,7 @@ function getMethod(fullName, filePath) {
 }
 
 function getMethodAtPosition(document, position) {
-	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
+	const range = document.getWordRangeAtPosition(position, funcRegex);
 	if (!range) return;
 	const fullName = document.getText(range);
 	const obj = getMethod(fullName, document.fileName);
@@ -33,7 +35,7 @@ function tryGetPosToken(document, pos) {
 }
 
 function tryGetPosTokenAtPosition(document, position) {
-	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
+	const range = document.getWordRangeAtPosition(position, funcRegex);
 	const token = tryGetPosToken(document, document.offsetAt(range.start));
 	if (token) token.range = range;
 	return token;
@@ -75,17 +77,17 @@ async function provideDefinition(document, position) {
 
 const printParam = (param) => `${param.startPosOfRef === null ? '' : 'ref '}${param.fieldName}${param.type === null ? '' : ` : ${param.type}`}`;
 
-const printMethod = (moduleName, methodName, method, isPublic = true) => `${isPublic ? `${moduleName}::` : ''}${methodName}(${method.parameters.map(printParam)})${method.returnType.length > 0 ? ` : ${method.returnType}` : ''}`
+const printMethod = (moduleName, methodName, method, isPublic = true) => `${isPublic ? `${moduleName}::` : ''}${methodName}(${method.parameters.map(printParam).join(', ')})${method.returnType.length > 0 ? ` : ${method.returnType}` : ''}`
 
 const parseBody = (body) => body.slice(1, -1).trim().split('\n').map(line => line.replace(/^\t/, '')).join('\n');
 
 async function provideCompletionItems(document, position) {
 	const line = document.lineAt(position);
 	const text = line.text.substring(0, position.character);
-	const publicMatch = text.match(/([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
+	const publicMatch = text.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
 
 	if (publicMatch == null) {
-		const privateMatch = text.match(/([a-zA-Z0-9_]+)$/);
+		const privateMatch = text.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)$/);
 		if (!privateMatch) return [];
 
 		const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
@@ -184,12 +186,12 @@ function provideSignatureHelp(document, position) {
 	}
 
 	const prefix = text.slice(0, openParenIndex);
-	const fullName = prefix.match(/([a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?)\s*$/);
+	const fullName = prefix.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?)\s*$/);
 	if (!fullName) return null;
 	const parameters = getMethod(fullName[1], document.fileName)?.method.parameters;
 	if (!parameters) return;
 
-	const label = `${fullName[1]}(${parameters.map(printParam)})`;
+	const label = `${fullName[1]}(${parameters.map(printParam).join(', ')})`;
 	const sigHelp = new vscode.SignatureHelp();
 	const sigInfo = new vscode.SignatureInformation(label);
 	sigInfo.parameters = parameters.map(p => new vscode.ParameterInformation(printParam(p)));
@@ -399,7 +401,7 @@ async function provideRenameEdits(document, position, newName) {
 
 async function provideReferences(document, position) {
 	const locations = [];
-	const range = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/);
+	const range = document.getWordRangeAtPosition(position, funcRegex);
 	if (!range) return;
 	const symbol = document.getText(range);
 	const references = moduleManager.getReferences(symbol, document.uri.fsPath);

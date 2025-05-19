@@ -256,8 +256,6 @@ function updateModule(document, checkIgnore = false) {
 
 		whileRun(c => {
 			const startWordPos = pos;
-			const nextRealPos = nextRealCharPos(pos + 1);
-			const nextRealChar = nextRealPos === null ? null : text[nextRealPos];
 			if (/\(|\{|\[/.test(c)) {
 				if (c == '{') localEnv.tryAddScope(depth.length);
 				depth.push(c);
@@ -327,7 +325,7 @@ function updateModule(document, checkIgnore = false) {
 				else if (/^(unless|if)$/.test(word) && /!|\+|'/.test(nextRealChar)) return;
 				else if ((nextRealPos + 1 < text.length && /::/.test(`${nextRealChar}${text[nextRealPos + 1]}`)) || /\(/.test(nextRealChar)) referenceUtils.tryAdd(startWordPos);
 				else localEnv.tryAddRef(word, startWordPos, depth.length);
-			} else if (c == ':' && /[a-zA-Z0-9_]/.test(nextRealChar)) {
+			} else if (c == ':' && /[a-zA-Z0-9_]/.test(text[pos + 1])) {
 				pos++; skipWhiteChars();
 				const startPos = pos;
 				const startLine = lineNumber;
