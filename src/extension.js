@@ -3,7 +3,7 @@ const path = require('path');
 const moduleManager = require('./moduleManager');
 const diagnosticsManager = require('./diagnosticsManager');
 
-const funcRegex = /(?<!(:|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
+const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 
 function getMethod(fullName, filePath) {
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
@@ -84,10 +84,10 @@ const parseBody = (body) => body.slice(1, -1).trim().split('\n').map(line => lin
 async function provideCompletionItems(document, position) {
 	const line = document.lineAt(position);
 	const text = line.text.substring(0, position.character);
-	const publicMatch = text.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
+	const publicMatch = text.match(/(?<!((?<!:):|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
 
 	if (publicMatch == null) {
-		const privateMatch = text.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)$/);
+		const privateMatch = text.match(/(?<!((?<!:):|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)$/);
 		if (!privateMatch) return [];
 
 		const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
@@ -125,8 +125,8 @@ async function provideCompletionItems(document, position) {
 		return [...methods, ...fields];
 	}
 
-	const moduleName = publicMatch[1];
-	const module = moduleManager.getModule(publicMatch[1]);
+	const moduleName = publicMatch[2];
+	const module = moduleManager.getModule(publicMatch[2]);
 	if (!module) return;
 	return Object.entries(module.publicMethods).map(([methodName, method]) => {
 		const item = new vscode.CompletionItem(methodName, vscode.CompletionItemKind.Function);
@@ -186,12 +186,12 @@ function provideSignatureHelp(document, position) {
 	}
 
 	const prefix = text.slice(0, openParenIndex);
-	const fullName = prefix.match(/(?<!(:|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?)\s*$/);
+	const fullName = prefix.match(/(?<!((?<!:):|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?)\s*$/);
 	if (!fullName) return null;
-	const parameters = getMethod(fullName[1], document.fileName)?.method.parameters;
+	const parameters = getMethod(fullName[2], document.fileName)?.method.parameters;
 	if (!parameters) return;
 
-	const label = `${fullName[1]}(${parameters.map(printParam).join(', ')})`;
+	const label = `${fullName[2]}(${parameters.map(printParam).join(', ')})`;
 	const sigHelp = new vscode.SignatureHelp();
 	const sigInfo = new vscode.SignatureInformation(label);
 	sigInfo.parameters = parameters.map(p => new vscode.ParameterInformation(printParam(p)));
