@@ -32,7 +32,7 @@ function getParameters(text, startIndex, openChars, closeChars, separationChar) 
 			depth--;
 			if (depth === 0) {
 				const content = text.slice(lastPartStart, index);
-				if (/[a-zA-Z0-9_{}\]\[\(\)\']/.test(content)) {
+				if (/[a-zA-Z0-9_{}\]\[\(\)\']/.test(content) || (parts.length > 0 && /^\s*$/.test(content))) {
 					parts.push({ content: content, pos: lastPartStart });
 				}
 				return parts;
@@ -170,13 +170,21 @@ function updateDiagnostics(document) {
 							for (const i in expectedParams) {
 								const paramPos = document.positionAt(parameters[i].pos);
 								const callParam = parameters[i].content;
-								if (expectedParams[i].startPosOfRef != null && !isParamRef(callParam)) {
+								if (/^\s*$/.test(callParam)) {
+									const diag = new vscode.Diagnostic(
+										new vscode.Range(paramPos, paramPos),
+										`Parameter should not be empty`,
+										vscode.DiagnosticSeverity.Error
+									);
+									diag.code = 'emptyParameter';
+									diagnosticsList.push(diag);
+								} else if (expectedParams[i].startPosOfRef != null && !isParamRef(callParam)) {
 									const diag = new vscode.Diagnostic(
 										new vscode.Range(paramPos, paramPos.translate(0, callParam.length)),
 										`This parameter is passed as 'ref'.`,
 										vscode.DiagnosticSeverity.Error
 									);
-									diag.code = 'missingRefInParameter';
+									// diag.code = 'missingRefInParameter';
 									diagnosticsList.push(diag);
 								} else if (expectedParams[i].startPosOfRef == null && isParamRef(callParam)) {
 									const diag = new vscode.Diagnostic(
@@ -184,7 +192,7 @@ function updateDiagnostics(document) {
 										`This parameter should not be passed as 'ref'.`,
 										vscode.DiagnosticSeverity.Error
 									);
-									diag.code = 'badRefInParameter';
+									// diag.code = 'badRefInParameter';
 									diagnosticsList.push(diag);
 								}
 							}
