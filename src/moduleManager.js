@@ -3,6 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const ignore = require('ignore');
 
+const ov = require('./nianioLibs/ov');
+const nparser = require('./nianioLibs/nparser');
+const module_checker = require('./nianioLibs/module_checker');
+const pretty_printer = require('./nianioLibs/pretty_printer');
+
+
+
 const moduleCache = {};
 const referenceCache = {};
 const referenceBackCache = {};
@@ -34,8 +41,6 @@ function updateModule(document, checkIgnore = false) {
 	const text = document.getText();
 	if (checkIgnore && checkFileIgnore(filePath)) return;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
-	const privateMethods = {};
-	const publicMethods = {};
 	const usedModules = {};
 	const positions = {};
 	let lastUseStatementPos = 0;
@@ -54,11 +59,11 @@ function updateModule(document, checkIgnore = false) {
 	}
 
 	const pushDiag = (startPos, endPos, message, messageCode = 'badSyntax', severity = vscode.DiagnosticSeverity.Error, tags = []) => 
-		staticDiagnostics.push(getDiag(startPos, endPos, message, messageCode, severity, tags));
+		true || staticDiagnostics.push(getDiag(startPos, endPos, message, messageCode, severity, tags));
 
-	if (filePath in referenceBackCache) {
+	if (Object.keys(referenceBackCache).includes(filePath)) {
 		for (const method of Object.keys(referenceBackCache[filePath])) {
-			if (method in referenceCache && filePath in referenceCache[method]) {
+			if (Object.keys(referenceCache).includes(method) && Object.keys(referenceCache[method]).includes(filePath)) {
 				delete referenceCache[method][filePath];
 			}
 		}
@@ -104,6 +109,15 @@ function updateModule(document, checkIgnore = false) {
 		}
 	}
 
+	const addReference = (methodName, startPos) => {
+		if (!(Object.keys(referenceCache).includes(methodName))) referenceCache[methodName] = {};
+		if (!(Object.keys(referenceCache[methodName]).includes(filePath))) referenceCache[methodName][filePath] = [];
+		referenceCache[methodName][filePath].push(startPos);
+
+		if (!(Object.keys(referenceBackCache[filePath]).includes(methodName))) referenceBackCache[filePath][methodName] = [];
+		referenceBackCache[filePath][methodName].push(startPos);
+	}
+
 	const referenceUtils = {
 		tryAdd: (startPos) => {
 			let methodName;
@@ -126,14 +140,14 @@ function updateModule(document, checkIgnore = false) {
 				if (text[pos] != '(') return true;
 			}
 			
-			if (!(methodName in referenceCache)) referenceCache[methodName] = {};
-			if (!(filePath in referenceCache[methodName])) referenceCache[methodName][filePath] = [];
+			if (!(Object.keys(referenceCache).includes(methodName))) referenceCache[methodName] = {};
+			if (!(Object.keys(referenceCache[methodName]).includes(filePath))) referenceCache[methodName][filePath] = [];
 			referenceCache[methodName][filePath].push(startPos);
 
 			const parts = methodName.split('::');
 			if (parts.length == 2) {
 				const moduleName = parts[0];
-				if (moduleName in usedModules) {
+				if (Object.keys(usedModules).includes(moduleName)) {
 					usedModules[moduleName].count++;
 				} else if (moduleName != thisModuleName) {
 					pushDiag(startPos, startPos + moduleName.length,
@@ -142,7 +156,7 @@ function updateModule(document, checkIgnore = false) {
 					);
 				}
 			}
-			if (!(methodName in referenceBackCache[filePath])) referenceBackCache[filePath][methodName] = [];
+			if (!(Object.keys(referenceBackCache[filePath]).includes(methodName))) referenceBackCache[filePath][methodName] = [];
 			referenceBackCache[filePath][methodName].push(startPos);
 
 			return true;
@@ -390,8 +404,8 @@ function updateModule(document, checkIgnore = false) {
 				skipWhiteChars();
 				const startPos = pos;
 				const fieldName = getWord(startPos, 'Expected field name');
-				if (fieldName in this.scopeBuffer || fieldName in this.fieldsPos) {
-					if (!(fieldName in this.waitingErrors)) this.waitingErrors[fieldName] = [];
+				if (Object.keys(this.scopeBuffer).includes(fieldName) || Object.keys(this.fieldsPos).includes(fieldName)) {
+					if (!(Object.keys(this.waitingErrors).includes(fieldName))) this.waitingErrors[fieldName] = [];
 					this.pushWaitingErrors(`Redeclaration of variable ${this.scopeBuffer[fieldName]?.startPos ?? this.fieldsPos[fieldName]}`, 'redeclarationOfVariable', fieldName, startPos);
 					return;
 				}
@@ -403,7 +417,7 @@ function updateModule(document, checkIgnore = false) {
 				this.waitingForNewScope.push({ depth: expectedDepth, addToScopeAfterRelease });
 			},
 			addNewDefToPosition(fieldName, fieldPos, nlType) {
-				if (!(fieldPos in positions)) {
+				if (!(Object.keys(positions).includes(fieldPos))) {
 					positions[fieldPos] = { type: 'fieldDef', name: fieldName, startPos: fieldPos, usage: [], nlType: nlType };
 					if (showDebugHoverInfo) {
 						positions[fieldPos].scope = JSON.parse(JSON.stringify(this.scopes));
@@ -423,9 +437,9 @@ function updateModule(document, checkIgnore = false) {
 				this.scopes.at(-1).push(fieldName);
 			},
 			tryAddRef(fieldName, startPos, depth) {
-				if (fieldName in this.fieldsPos) this.addRef(fieldName, startPos, this.fieldsPos[fieldName], depth);
+				if (Object.keys(this.fieldsPos).includes(fieldName)) this.addRef(fieldName, startPos, this.fieldsPos[fieldName], depth);
 				else {
-					if (!(fieldName in this.waitingErrors)) this.waitingErrors[fieldName] = [];
+					if (!(Object.keys(this.waitingErrors).includes(fieldName))) this.waitingErrors[fieldName] = [];
 					this.pushWaitingErrors(`Variable not declared${showDebugInfo ? ` at depth ${depth}, depth scope ${this.scopes.length}` : ''}`, 'variableNotDeclared', fieldName, startPos);
 				}
 			},
@@ -454,7 +468,7 @@ function updateModule(document, checkIgnore = false) {
 					&& this.waitingForNewScope.pop().addToScopeAfterRelease) {
 					for (const [fieldName, field] of Object.entries(this.scopeBuffer)) {
 						this.addNewDefToPosition(fieldName, field.startPos, field.nlType);
-						if (fieldName in this.waitingErrors) {
+						if (Object.keys(this.waitingErrors).includes(fieldName)) {
 							for (const diag of this.waitingErrors[fieldName]) {
 								this.addRef(fieldName, diag.tags[0], field.startPos, depth);
 							}
@@ -520,7 +534,7 @@ function updateModule(document, checkIgnore = false) {
 	}
 
 	// check for duplicated modules
-	if (thisModuleName in moduleCache && moduleCache[thisModuleName].filePath != filePath) {
+	if (Object.keys(moduleCache).includes(thisModuleName) && moduleCache[thisModuleName].filePath != filePath) {
 		if (!moduleCache[thisModuleName].staticDiagnostics.some((diag) => diag.code == 'duplicatedModule' && diag.tags.includes(filePath))) {
 			pushDiag(0, 0,
 				`Duplicated module - first detected is ${moduleCache[thisModuleName].filePath}`,
@@ -533,94 +547,128 @@ function updateModule(document, checkIgnore = false) {
 	}
 
 	// toplevel search
-	whileRun(c => {
-		if (!/[a-zA-Z0-9_]/.test(c)) {
-			if (!/\s/.test(c)) {
-				pushDiag(pos, pos, 'Bad syntax - expected use or def');
-				console.log('BAD module char', getPathLine());
-			}
-			pos++;
-			return;
-		}
-		const startPos = pos;
-		const word = getWord(startPos, 'Expected a word');
+	// whileRun(c => {
+	// 	if (!/[a-zA-Z0-9_]/.test(c)) {
+	// 		if (!/\s/.test(c)) {
+	// 			pushDiag(pos, pos, 'Bad syntax - expected use or def');
+	// 			console.log('BAD module char', getPathLine());
+	// 		}
+	// 		pos++;
+	// 		return;
+	// 	}
+	// 	const startPos = pos;
+	// 	const word = getWord(startPos, 'Expected a word');
 
-		if (word == 'use') {
-			if (Object.keys(privateMethods).length > 0 || Object.keys(privateMethods).length > 0) {
-				pushDiag(startPos, pos, 'Bad use statement - should occur before function definitions');
-			}
+	// 	if (word == 'use') {
+	// 		if (Object.keys(privateMethods).length > 0 || Object.keys(privateMethods).length > 0) {
+	// 			pushDiag(startPos, pos, 'Bad use statement - should occur before function definitions');
+	// 		}
 
-			skipWhiteChars();
-			if (!/[a-zA-Z0-9_]/.test(text[pos])) {
-				pushDiag(startPos, pos, 'Bad use statement - missing module name');
-				return;
-			}
-			const startModulePos = pos;
-			pos++;
-			const word = getWord(startModulePos, 'Expected module name');
+	// 		skipWhiteChars();
+	// 		if (!/[a-zA-Z0-9_]/.test(text[pos])) {
+	// 			pushDiag(startPos, pos, 'Bad use statement - missing module name');
+	// 			return;
+	// 		}
+	// 		const startModulePos = pos;
+	// 		pos++;
+	// 		const word = getWord(startModulePos, 'Expected module name');
 
-			positions[startModulePos] = { type: 'useStatement', name: word };
+	// 		positions[startModulePos] = { type: 'useStatement', name: word };
 
-			skipWhiteChars();
+	// 		skipWhiteChars();
 
-			if (text[pos] != ';') {
-				pushDiag(startModulePos + word.length, pos, `Missing semicolon`);
-			} else {
-				pos++;
-			}
+	// 		if (text[pos] != ';') {
+	// 			pushDiag(startModulePos + word.length, pos, `Missing semicolon`);
+	// 		} else {
+	// 			pos++;
+	// 		}
 
-			if (word in usedModules) {
-				pushDiag(startPos, pos, `Module '${word}' usage is duplicated`, 'duplicatedImport', vscode.DiagnosticSeverity.Warning);
-			} else {
-				usedModules[word] = { count: 0, startPos: startPos, endPos: pos };
-			}
+	// 		if (Object.keys(usedModules).includes(word)) {
+	// 			pushDiag(startPos, pos, `Module '${word}' usage is duplicated`, 'duplicatedImport', vscode.DiagnosticSeverity.Warning);
+	// 		} else {
+	// 			usedModules[word] = { count: 0, startPos: startPos, endPos: pos };
+	// 		}
 
-			lastUseStatementPos = pos;
-		} else if (word == 'def') {
-			const methodDef = getMethod(startPos);
-			if (!methodDef) {
-				return;
-			}
-			if (methodDef.moduleName != thisModuleName) {
-				pushDiag(methodDef.startPos, methodDef.startPos + methodDef.moduleName.length,
-					`Module name '${methodDef.moduleName}' must equal file name '${thisModuleName}'`,
-					'moduleNameNotEqualFileName',
-				);
-			} else if (methodDef.isPrivate) {
-				if (methodDef.methodName in privateMethods) {
-					pushDiag(methodDef.startPos, methodDef.startPos + methodDef.methodName.length,
-						`Duplicated private method name '${methodDef.methodName}'`,
-						'duplicatedMethodDef',
-					);
-				} else {
-					privateMethods[methodDef.methodName] = methodDef;
-				}
-			} else {
-				if (methodDef.methodName in publicMethods) {
-					pushDiag(methodDef.startPos + thisModuleName.length + 2, methodDef.startPos + thisModuleName.length + 2 + methodDef.methodName.length,
-						`Duplicated public method name '${methodDef.methodName}'`,
-						'duplicatedMethodDef',
-					);
-				} else {
-					publicMethods[methodDef.methodName] = methodDef;
-				}
-			}
-		} else {
-			pushDiag(startPos, pos, 'Bad syntax - expected use or def');
-			console.log('BAD module cont', getPathLine(), word);
-		}
+	// 		lastUseStatementPos = pos;
+	// 	} else if (word == 'def') {
+	// 		const methodDef = getMethod(startPos);
+	// 		if (!methodDef) {
+	// 			return;
+	// 		}
+	// 		if (methodDef.moduleName != thisModuleName) {
+	// 			pushDiag(methodDef.startPos, methodDef.startPos + methodDef.moduleName.length,
+	// 				`Module name '${methodDef.moduleName}' must equal file name '${thisModuleName}'`,
+	// 				'moduleNameNotEqualFileName',
+	// 			);
+	// 		} else if (methodDef.isPrivate) {
+	// 			if (Object.keys(privateMethods).includes(methodDef.methodName)) {
+	// 				pushDiag(methodDef.startPos, methodDef.startPos + methodDef.methodName.length,
+	// 					`Duplicated private method name '${methodDef.methodName}'`,
+	// 					'duplicatedMethodDef',
+	// 				);
+	// 			} else {
+	// 				privateMethods[methodDef.methodName] = methodDef;
+	// 			}
+	// 		} else {
+	// 			if (Object.keys(publicMethods).includes(methodDef.methodName)) {
+	// 				pushDiag(methodDef.startPos + thisModuleName.length + 2, methodDef.startPos + thisModuleName.length + 2 + methodDef.methodName.length,
+	// 					`Duplicated public method name '${methodDef.methodName}'`,
+	// 					'duplicatedMethodDef',
+	// 				);
+	// 			} else {
+	// 				publicMethods[methodDef.methodName] = methodDef;
+	// 			}
+	// 		}
+	// 	} else {
+	// 		pushDiag(startPos, pos, 'Bad syntax - expected use or def');
+	// 		console.log('BAD module cont', getPathLine(), word);
+	// 	}
 
-		pos++;
-	});
+	// 	pos++;
+	// });
 
 	// chech if not used imports
-	for (const [key, value] of Object.entries(usedModules)) {
-		if (value.count == 0) {
-			pushDiag(value.startPos, value.endPos, `Module '${key}' not used`, 'notUsedImport', vscode.DiagnosticSeverity.Warning);
-		}
+	// for (const [key, value] of Object.entries(usedModules)) {
+	// 	if (value.count == 0) {
+	// 		pushDiag(value.startPos, value.endPos, `Module '${key}' not used`, 'notUsedImport', vscode.DiagnosticSeverity.Warning);
+	// 	}
+	// }
+
+	staticDiagnostics.splice(0, staticDiagnostics.length);
+
+	const methods = {};
+
+	function addMethod(fun) {
+		fun.endLine = fun.cmd.debug.end.line;
+		fun.rawRange = new vscode.Range(fun.line - 1, 0, fun.endLine - 1, 1);
+		fun.rawMethod = [...fun.comment, document.getText(fun.rawRange)].join('\n');
+		const name = `${ov.is(fun.access, 'pub') ? `${thisModuleName}::` : ``}${fun.name}`;
+		methods[name] = fun;
 	}
 
-	moduleCache[thisModuleName] = { filePath, privateMethods, publicMethods, staticDiagnostics, lastUseStatementPos, usedModules, positions }
+	const parsedModule = nparser.sparse(text, thisModuleName, true, addMethod, addReference);
+
+	parsedModule.errors.forEach(err => staticDiagnostics.push(parseError(err)));
+
+	// if (parsedModule.errors.length === 0) console.log('OK ', thisModuleName);
+
+	const { errors, varPositions } = module_checker.check_module(parsedModule, false, {});
+	[errors.errors, errors.warnings].flat().forEach(err => staticDiagnostics.push(parseError(err)));
+
+	moduleCache[thisModuleName] = { filePath, methods, staticDiagnostics, lastUseStatementPos, usedModules, positions, varPositions, parsedModule }
+}
+
+function parseError(err) {
+	return new vscode.Diagnostic(
+		new vscode.Range(
+			Math.max(0, err.line - 1),
+			Math.max(0, err.column - 1),
+			Math.max(0, (err.endLine ?? err.line) - 1),
+			Math.max(0, (err.endColumn ?? (err.column + 1)) - 1)
+		),
+		err.message,
+		ov.is(err.type, 'error') ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
+	);
 }
 
 function removeModule(filePath, checkIgnore = false) {
@@ -630,9 +678,9 @@ function removeModule(filePath, checkIgnore = false) {
 	const moduleName = fileName.split('.')[0];
 	delete moduleCache[moduleName];
 
-	if (filePath in referenceBackCache) {
+	if (Object.keys(referenceBackCache).includes(filePath)) {
 		for (const method of Object.keys(referenceBackCache[filePath])) {
-			if (method in referenceCache && filePath in referenceCache[method]) {
+			if (Object.keys(referenceCache).includes(method) && Object.keys(referenceCache[method]).includes(filePath)) {
 				delete referenceCache[method][filePath];
 			}
 		}
@@ -654,4 +702,43 @@ const getReferences = (functionName, filePath) => functionName.includes("::")
 
 const getReferencesBack = (filePath) => referenceBackCache[filePath] ?? {}
 
-module.exports = { updateModule, removeModule, getModule, moduleCache, findFiles, getReferences, updateIgnore, getReferencesBack, showDebugInfo, showDebugHoverInfo };
+const getRemoveMod = () => vscode.workspace.getConfiguration('nianiolang').get('onPrettyPrintModule.removeMod');
+const getPrintNewStamp = () => vscode.workspace.getConfiguration('nianiolang').get('onPrettyPrintModule.printNewStamp');
+
+function prettyPrintModule(moduleName) {
+	const module = getModule(moduleName);
+	if (!module || module.parsedModule.errors.length > 0) return null;
+	return pretty_printer.print_module_to_str(module.parsedModule, getRemoveMod(), getPrintNewStamp());
+}
+
+function prettyPrintMethod(moduleName, pos) {
+	const module = getModule(moduleName);
+	if (!module || module.parsedModule.errors.length > 0) return null;
+	const fun = getFunctionFromPos(module.parsedModule, pos);
+	if (!fun) return null;
+	fun.comment = [];
+	const out = pretty_printer.print_function(fun, moduleName, getRemoveMod());
+	return { out, range: fun.rawRange };
+}
+
+function getFunctionFromPos(parsedModule, pos) {
+	for (const fun of parsedModule.fun_def) {
+		if (pos.line >= fun.line && pos.line < fun.endLine) return fun;
+	}
+	return null;
+}
+
+module.exports = {
+	updateModule,
+	removeModule,
+	getModule,
+	moduleCache,
+	findFiles,
+	getReferences,
+	updateIgnore,
+	getReferencesBack,
+	showDebugInfo,
+	showDebugHoverInfo,
+	prettyPrintModule,
+	prettyPrintMethod,
+};

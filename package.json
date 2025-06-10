@@ -2,7 +2,7 @@
     "name": "nianiolang-dev-kit",
     "displayName": "NianioLang Dev Kit",
     "description": "",
-    "version": "0.3.13",
+    "version": "1.0.1",
     "publisher": "padr",
     "engines": {
         "vscode": "^1.98.0"
@@ -42,12 +42,47 @@
             "scopeName": "source.nl",
             "path": "./syntaxes/nianiolang.tmLanguage.json"
         }],
+		"configuration": {
+			"properties": {
+				"nianiolang.onSave.prettyPrint": {
+					"type": "string",
+					"enum": ["none", "Current module", "Current method"],
+					"default": "none",
+					"description": "Przy zapisie: formatowanie kodu NianioLang"
+				},
+				"nianiolang.onSave.removeUnusedModules": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy zapisie: usuń zbędne deklarace using"
+				},
+				"nianiolang.onSave.addMissingModules": {
+					"type": "boolean",
+					"default": false,
+					"description": "(! jeszcze nie działa) Przy zapisie: dodaj brakukjące deklarace using"
+				},
+				"nianiolang.onPrettyPrintModule.removeMod": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy formatowaniu modułu: zamień wyrażenia modalne na normalne"
+				},
+				"nianiolang.onPrettyPrintModule.printNewStamp": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy formatowaniu modułu: dodaj komentarz na górze pliku zwany stamp'em jeśli go nie ma"
+				}
+			}
+		},
         "commands": [
-            {
-                "command": "extension.updateAllDiagnostics",
-                "title": "NianioLang: Update All Files Diagnostics"
-            }
-        ]
+            { "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
+            { "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
+            { "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" }
+        ],
+		"menus": {
+			"editor/context": [
+			    { "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang", "group": "1_refactor" },
+			    { "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang", "group": "1_refactor" }
+			]
+		}
     },
     "dependencies": {
         "ignore": "^7.0.3"
