@@ -47,7 +47,7 @@
 				"nianiolang.onSave.prettyPrint": {
 					"type": "string",
 					"enum": ["none", "Current module", "Current method"],
-					"default": "none",
+					"default": "Current module",
 					"description": "Przy zapisie: formatowanie kodu NianioLang"
 				},
 				"nianiolang.onSave.removeUnusedModules": {

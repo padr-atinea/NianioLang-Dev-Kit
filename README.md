@@ -11,23 +11,33 @@ NianioLang Dev Kit is a Visual Studio Code extension that provides a full-featur
 - **Diagnostics:** Real-time error detection for issues like missing module imports and incorrect parameter counts.
 - **Quick Fixes (Code Actions):** Instantly add missing module imports or convert a private method into a public one.
 
-## Usage
 
-- **Go To Definition:** Ctrl+Click on any function name to jump to its definition.
-- **Code Completion:** Type a module name followed by `::` to see a list of public functions, complete with signature previews.
-- **Signature Help:** When inside function call parentheses, VS Code displays parameter hints. You can also trigger it manually with `Ctrl+Shift+Space`.
-- **Quick Fixes:** When issues such as missing imports or wrong parameter counts are detected, click the lightbulb icon to see available fixes.
+- **Syntax highlighting:** Advanced TextMate grammar for clear and precise code coloring
+- **Go To Definition:** Ctrl+Click (or F12) to navigate to a function’s definition within the current module or external modules
+- **IntelliSense & Code Completion:** Autocomplete module names, public and private functions, variables and fields; insert snippets with parameter placeholders
+- **Signature Help:** Automatic parameter hints as you type inside call parentheses, with active parameter highlighting (trigger manually with Ctrl+Shift+Space)
+- **Diagnostics:** Real-time error detection for missing imports, incorrect parameter counts, unused or duplicated modules, incorrect module names and more
+- **Quick Fixes (Code Actions):** Add missing module imports, remove unused imports, convert private methods into public ones, fix module names, remove all unnecessary usings in a file
+- **Rename Symbol:** Rename definitions and all references across modules
+- **Find References:** Show all locations where a symbol is used
+- **Hover:** Display type constructor information on variables and functions
+- **Code Lens:** Shows reference counts above each method
+- **Pretty Print:** Commands to format the entire module or the current method (extension.prettyPrintModule, extension.prettyPrintMethod)
+- **On-Save Actions:** Configurable options to remove unused modules, add missing modules, fix module names and pretty print on save
+- **File Watchers:** Automatically reload and reindex .nl files when they are created, changed or deleted
+- **Update Diagnostics:** Command to re-run diagnostics on all .nl files (extension.updateAllDiagnostics)
+- **Refactor to JavaScript:** Experimental command to convert a NianioLang module into a JavaScript file (extension.refactorToJS)
 
 ## Configuration
 
 NianioLang Dev Kit activates automatically on files with the `nianiolang` language mode. For advanced users, keybindings and other settings can be customized in VS Code’s settings.
-
-## Changelog
-
-- **Enhanced Navigation:** Added Go To Definition, Hover, and Reference providers.
-- **Improved IntelliSense:** Integrated signature help with parameter highlighting.
-- **Real-Time Diagnostics:** Now detects missing module imports and incorrect parameter counts.
-- **Quick Fixes:** Added Code Actions for common issues.
+- nianiolang.onSave.prettyPrint (string) - none | Current module | Current method
+- nianiolang.onSave.removeUnusedModules (boolean)
+- nianiolang.onSave.addMissingModules (boolean)
+- nianiolang.onSave.fixModuleNames (boolean)
+- nianiolang.onPrettyPrintModule.removeMod (boolean)
+- nianiolang.onPrettyPrintModule.printNewStamp (boolean)
+- nianiolang.onMethodHover.showReferenceCount (boolean)
 
 ## License
 
