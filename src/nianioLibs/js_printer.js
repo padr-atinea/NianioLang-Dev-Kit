@@ -236,7 +236,7 @@ function get_fun_label(fun_name, fun_module) {
 }
 
 function string_to_nl(str) {
-	return str.replace('\'', '\'\'');
+	return str.replaceAll('\'', '\\\'');
 }
 
 function join_print_val(aval) {
@@ -270,11 +270,11 @@ function print_val(val) {
 		const str_arr = ov.as(val.value, 'string');
 		var arr  = [];
 		for (const el of str_arr.arr) {
-			arr.push(`\'${string_to_nl(el)}`);
+			arr.push(`'${string_to_nl(el)}'+`);
 		}
 		if (ov.is(str_arr.last, 'new_line')) {
 		} else if (ov.is(str_arr.last, 'end')) {
-			arr[arr.length - 1] = `${arr[arr.length - 1]}\'`;
+			arr[arr.length - 1] = arr[arr.length - 1].slice(0, -1);
 		}
 		return wprinter.build_str_arr(arr, str_arr.last);
 	} else if (ov.is(val.value, 'bool')) {

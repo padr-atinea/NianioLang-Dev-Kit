@@ -257,7 +257,7 @@ function get_fun_label(fun_name, fun_module) {
 }
 
 function string_to_nl(str) {
-	return str.replace('\'', '\'\'');
+	return str.replace(/'/g, '\'\'');
 }
 
 function join_print_val(aval) {
