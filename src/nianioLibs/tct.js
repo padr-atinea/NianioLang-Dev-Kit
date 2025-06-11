@@ -217,6 +217,80 @@ function is_own_type(type, defined_types) {
 	}
 }
 
+function get_type_constructor(type) {
+	let res = '';
+	let own = 'ptd';
+	if (ov.is(type, 'tct_rec')) {
+		let p = ov.as(type, 'tct_rec');
+		res = 'ptd::rec({';
+		for (const [name, p_type] of Object.entries(p)) {
+			res += name + ' => ' + get_type_constructor(p_type) + ', ';
+		}
+		res += '})';
+	} else if (ov.is(type, 'tct_own_rec')) {
+		let p = ov.as(type, 'tct_own_rec');
+		res = own + '::rec({';
+		for (const [name, p_type] of Object.entries(p)) {
+			res += name + ' => ' + get_type_constructor(p_type) + ', ';
+		}
+		res += '})';
+	} else if (ov.is(type, 'tct_hash')) {
+		let p = ov.as(type, 'tct_hash');
+		res = 'ptd::hash(' + get_type_constructor(p) + ')';
+	} else if (ov.is(type, 'tct_own_hash')) {
+		let p = ov.as(type, 'tct_own_hash');
+		res = own + '::hash(' + get_type_constructor(p) + ')';
+	} else if (ov.is(type, 'tct_arr')) {
+		let p = ov.as(type, 'tct_arr');
+		res = 'ptd::arr(' + get_type_constructor(p) + ')';
+	} else if (ov.is(type, 'tct_own_arr')) {
+		let p = ov.as(type, 'tct_own_arr');
+		res = own + '::arr(' + get_type_constructor(p) + ')';
+	} else if (ov.is(type, 'tct_var')) {
+		let p = ov.as(type, 'tct_var');
+		res = 'ptd::var({';
+		for (const [name, p_type] of Object.entries(p)) {
+			let match_p_type;
+			if (ov.is(match_p_type, 'with_param')) {
+				let v = ov.as(match_p_type, 'with_param');
+				res += name + ' => ' + get_type_constructor(v) + ', ';
+			} else if (ov.is(match_p_type, 'no_param')) {
+				res += name + ' => ptd::none(), ';
+			}
+		}
+		res += '})';
+	} else if (ov.is(type, 'tct_own_var')) {
+		let p = ov.as(type, 'tct_own_var');
+		res = own + '::var({';
+		for (const [name, p_type] of Object.entries(p)) {
+			let match_p_type;
+			if (ov.is(match_p_type, 'with_param')) {
+				let v = ov.as(match_p_type, 'with_param');
+				res += name + ' => ' + get_type_constructor(v) + ', ';
+			} else if (ov.is(match_p_type, 'no_param')) {
+				res += name + ' => ptd::none(), ';
+			}
+		}
+		res += '})';
+	} else if (ov.is(type, 'tct_ref')) {
+		let p = ov.as(type, 'tct_ref');
+		res = '@' + p;
+	} else if (ov.is(type, 'tct_int')) {
+		res = 'ptd::int()';
+	} else if (ov.is(type, 'tct_string')) {
+		res = 'ptd::string()';
+	} else if (ov.is(type, 'tct_bool')) {
+		res = 'ptd::bool()';
+	} else if (ov.is(type, 'tct_empty')) {
+		throw new Error;
+	} else if (ov.is(type, 'tct_void')) {
+		throw new Error;
+	} else if (ov.is(type, 'tct_im')) {
+		res = 'ptd::ptd_im()';
+	}
+	return res;
+}
+
 module.exports = {
 	arr,
 	own_arr,
@@ -239,4 +313,5 @@ module.exports = {
 	// meta_type,
 	own_type_to_ptd,
 	is_own_type,
+	get_type_constructor,
 }

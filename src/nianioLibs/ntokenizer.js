@@ -235,6 +235,7 @@ function init(state) {
 }
 
 module.exports = {
+	get_next_token,
 	get_next_comment,
 	get_line,
 	get_column,

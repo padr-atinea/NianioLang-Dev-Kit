@@ -82,7 +82,7 @@ function set_used_function(fun_key, func, func_used) {
 	}
 }
 
-function check_module(module, check_public_fun, functions) {
+function check_module(module, check_public_fun, functions, varPositions) {
 	const errors = {errors: [], warnings: [], current_line: -1, module: module.name};
 	const called = {func: {}, module: {}};
 	const state = {
@@ -92,7 +92,7 @@ function check_module(module, check_public_fun, functions) {
 		called: called,
 		vars: {},
 		errors: errors,
-		varPositions: {},
+		varPositions: varPositions,
 	};
 	const func = {};
 	const func_used = {};
@@ -112,7 +112,7 @@ function check_module(module, check_public_fun, functions) {
 				use_var(fun_arg.name, ov.mk('get'), state, fun_arg.place);
 			}
 		}
-		load_block(state, prev);
+		load_block(state, prev, fun_def.cmd.debug.end);
 		if (!state.return.was) {
 			if (ov.is(state.return.arg, 'value') || ov.is(state.return.arg, 'was_value')) add_error(state.errors, 'no return value at end of function');
 		}
@@ -122,18 +122,18 @@ function check_module(module, check_public_fun, functions) {
 		if(!(ov.is(fun_def.access, 'priv'))) func_used[fun_key] = 0;;
 		state.called.func = {};
 	}
-	const imports = {};
-	for (const import_ of module.import) {
-		state.errors.current_line = import_.line;
-		if ((Object.keys(imports).includes(import_.name))) add_warning(state.errors, 'multiple use module:' + import_.name, import_.line, import_.column, import_.endLine, import_.endColumn);
-		if (!Object.keys(state.called.module).includes(import_.name)) add_warning(state.errors, 'unused module:' + import_.name, import_.line, import_.column, import_.endLine, import_.endColumn);
-		imports[import_.name] = true;
-	}
-	for (const [name, line] of Object.entries(state.called.module)) {
-		state.errors.current_line = line;
-		if (module.name === name) continue;
-		if (!((Object.keys(imports).includes(name)))) add_error(state.errors, 'module \'' + name + '\' not imported', line);
-	}
+	// const imports = {};
+	// for (const import_ of module.imports) {
+	// 	state.errors.current_line = import_.line;
+	// 	if ((Object.keys(imports).includes(import_.name))) add_warning(state.errors, 'multiple use module:' + import_.name, import_.line, import_.column, import_.endLine, import_.endColumn);
+	// 	if (!Object.keys(state.called.module).includes(import_.name)) add_warning(state.errors, 'unused module:' + import_.name, import_.line, import_.column, import_.endLine, import_.endColumn);
+	// 	imports[import_.name] = true;
+	// }
+	// for (const [name, line] of Object.entries(state.called.module)) {
+	// 	state.errors.current_line = line;
+	// 	if (module.name === name) continue;
+	// 	if (!((Object.keys(imports).includes(name)))) add_error(state.errors, `module \'${name}\' not imported`, line);
+	// }
 	if (!check_public_fun) {
 		const copy = JSON.parse(JSON.stringify(func_used));
 		for (const [fun_key, none] of Object.entries(copy)) {
@@ -146,7 +146,7 @@ function check_module(module, check_public_fun, functions) {
 			add_warning(state.errors, 'unused function: ' + module.name + '_priv::' + fun_def.name, fun_def.line, 0, fun_def.cmd.debug.end.line, fun_def.cmd.debug.end.position);
 		}
 	}
-	return { errors: state.errors, varPositions : state.varPositions };
+	return state.errors;
 }
 
 // function check_used_functions(used_functions, functions,  modules, errors) {
@@ -378,7 +378,7 @@ function check_cmd(cmd, state) {
 		state.in_loop = true;
 		check_cmd(as_for.cmd, state);
 		check_val(as_for.iter, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'fora')) {
 		const as_fora = ov.as(cmd.cmd, 'fora');
@@ -387,7 +387,7 @@ function check_cmd(cmd, state) {
 		add_var_dec(as_fora.iter, true, true, true, state);
 		state.in_loop = true;
 		check_cmd(as_fora.cmd, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'forh')) {
 		const as_forh = ov.as(cmd.cmd, 'forh');
@@ -397,14 +397,14 @@ function check_cmd(cmd, state) {
 		add_var_dec(as_forh.key, true, true, true, state);
 		state.in_loop = true;
 		check_cmd(as_forh.cmd, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'loop')) {
 		const as_loop = ov.as(cmd.cmd, 'loop');
 		const prev = save_block(state);
 		state.in_loop = true;
 		check_cmd(as_loop, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 	} else if (ov.is(cmd.cmd, 'rep')) {
 		const as_rep = ov.as(cmd.cmd, 'rep');
 		const prev = save_block(state);
@@ -412,7 +412,7 @@ function check_cmd(cmd, state) {
 		add_var_dec(as_rep.iter, true, true, true, state);
 		state.in_loop = true;
 		check_cmd(as_rep.cmd, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'while')) {
 		const as_while = ov.as(cmd.cmd, 'while');
@@ -420,7 +420,7 @@ function check_cmd(cmd, state) {
 		check_val(as_while.cond, state);
 		state.in_loop = true;
 		check_cmd(as_while.cmd, state);
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'if_mod')) {
 		const if_mod = ov.as(cmd.cmd, 'if_mod');
@@ -460,7 +460,7 @@ function check_cmd(cmd, state) {
 			check_cmd(branch.cmd, state);
 			if(!(state.return.was)) was = false;
 			update_inits(state, inits);
-			load_block(state, inits.prev);
+			load_block(state, inits.prev, branch.debug.end);
 			restore_block(state, inits.prev);
 		}
 		state.return.was = was;
@@ -493,7 +493,7 @@ function check_cmd(cmd, state) {
 		for (const cmd_s of ov.as(cmd.cmd, 'block').cmds) {
 			check_cmd(cmd_s, state);
 		}
-		load_block(state, prev);
+		load_block(state, prev, cmd.debug.end);
 	} else if (ov.is(cmd.cmd, 'die')) {
 		for (const arg of ov.as(cmd.cmd, 'die')) {
 			check_val(arg, state);
@@ -617,12 +617,13 @@ function save_block(state) {
 	return JSON.parse(JSON.stringify({ in_loop: state.in_loop, vars: state.vars }));
 }
 
-function load_block(state, prev) {
+function load_block(state, prev, endPlace) {
 	state.in_loop = prev.in_loop;
 	const keys = JSON.parse(JSON.stringify(Object.keys(state.vars)));
 	for (const key of keys) {
 		if (!Object.keys(prev.vars).includes(key)) {
 			const info = state.vars[key];
+			info.endPlace = endPlace;
 			delete state.vars[key];
 			if (!info.read && !info.is_required) {
 				add_warning(state.errors, 'never read variable: ' + key, info.defPlace.line, info.defPlace.position, info.defPlace.line, info.defPlace.position + info.name.length);

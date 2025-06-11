@@ -5,10 +5,26 @@ const nast = require('./nast');
 
 const end_list = [';', 'if', 'unless', 'fora', 'forh', 'rep', 'while'];
 
-function add_error(state, message) {
-	const current_line = ntokenizer.get_line(state.state);
-	const pos = ntokenizer.get_column(state.state);
-	state.errors.push({ line: current_line, module: state.module_name, column: pos, message: message, type: ov.mk('error') });
+function add_error(state, message, line = null, column = null, endLine = null, endColumn = null) {
+	state.errors.push({
+		message: message,
+		type: ov.mk('error'),
+		line: line ?? ntokenizer.get_line(state.state),
+		column: column ?? ntokenizer.get_column(state.state),
+		endLine: endLine ?? line ?? ntokenizer.get_line(state.state),
+		endColumn: endColumn ?? ((column ?? ntokenizer.get_column(state.state)) + 1),
+	});
+}
+
+function add_warning(state, msg, line, column, endLine, endColumn) {
+	state.warnings.push({
+		message: msg,
+		type: ov.mk('warning'),
+		line: line,
+		column: column,
+		endLine: endLine,
+		endColumn: endColumn,
+	});
 }
 
 function eat(state, token) {
@@ -21,19 +37,27 @@ function try_eat(state, token) {
 	return ntokenizer.eat_token(state.state, token);
 }
 
-function parse_module(state, name, addMethod) {
-	const mod = { name: name, import: [], fun_def: [], stamp: '', ending_comment: [] };
+function parse_module(state, addMethod) {
+	const mod = { module_name: state.module_name, imports: [], fun_def: [], stamp: '', ending_comment: [], importsMap: {} };
 	mod.stamp = ntokenizer.pop_last_comment(state.state).join('\n');
 	let place = ntokenizer.get_place(state.state);
 	while (try_eat(state, 'use')) {
 		if (ntokenizer.is_type(state.state, ov.mk('word'))) {
-			mod.import.push({
+			const wordPlace = ntokenizer.get_place(state.state);
+			const imp = {
 				name: ntokenizer.eat_type(state.state, ov.mk('word')),
 				line: place.line,
 				column: place.position,
 				endLine: ntokenizer.get_line(state.state),
 				endColumn: ntokenizer.get_column(state.state),
-			});
+			};
+			mod.imports.push(imp);
+			state.varPositions[`${wordPlace.line}|${wordPlace.position}`] = { 'use': imp.name };
+			if (imp.name in state.importsMap) {
+				add_warning(state, 'multiple use module:' + imp.name, imp.line, imp.column, imp.endLine, imp.endColumn);
+			} else {
+				state.importsMap[imp.name] = { usageCount: 0, place: imp };
+			}
 		} else {
 			add_error(state, 'expected word as name of module');
 		}
@@ -41,18 +65,26 @@ function parse_module(state, name, addMethod) {
 		place = ntokenizer.get_place(state.state);
 	}
 	while (ntokenizer.next_is(state.state, 'def')) {
-		const try_fun_def = parse_fun_def(state, name);
+		const try_fun_def = parse_fun_def(state);
 		if (ov.is(try_fun_def, 'ok')) {
 			const fun_def = ov.as(try_fun_def, 'ok');
 			mod.fun_def.push(fun_def);
 			addMethod(fun_def);
 		} else {
 			add_error(state, ov.as(try_fun_def, 'err'));
-			return mod;
+			while (!ntokenizer.next_is(state.state, 'def') && !ntokenizer.is_type(state.state, ov.mk('end'))) {
+				ntokenizer.get_next_token(state);
+			}
 		}
 	}
+
+	for (const imp of mod.imports) {
+		if (state.importsMap[imp.name].usageCount === 0) add_warning(state, 'unused module:' + imp.name, imp.line, imp.column, imp.endLine, imp.endColumn);
+	}
+
 	if (!ntokenizer.is_type(state.state, ov.mk('end'))) add_error(state, 'expected function definition');
 	mod.ending_comment = ntokenizer.get_next_comment(state.state);
+	mod.importsMap = state.importsMap;
 	return mod;
 }
 
@@ -75,6 +107,13 @@ function parse_fun_arg_list(state) {
 			if (ov.is(try_tmp, 'err')) return try_tmp;
 			const tmp = ov.as(try_tmp, 'ok')
 			el.type = ov.mk('type', tmp);
+			if (state.parse_types) {
+				const try_tct_type = ptd_parser.try_value_to_ptd(tmp);
+				if (ov.is(try_tct_type, 'ok')) {
+					const tct_type = ov.as(try_tct_type, 'ok');
+					el.tct_type = tct_type;
+				}
+			}
 		}
 		ret.push(el);
 		if (!try_eat(state, ',')) break;
@@ -83,7 +122,7 @@ function parse_fun_arg_list(state) {
 	return ov.mk('ok', ret);
 }
 
-function parse_fun_def(state, module_name) {
+function parse_fun_def(state) {
 	const ret = {
 		ret_type: { type: ov.mk('none'), tct_type: ov.mk('tct_im') },
 		line: ntokenizer.get_line(state.state),
@@ -95,12 +134,13 @@ function parse_fun_def(state, module_name) {
 		comment: [],
 	};
 	eat(state, 'def');
+	const place = ntokenizer.get_place(state.state);
 	const try_ret_name = eat_text(state);
 	if (ov.is(try_ret_name, 'err')) return try_ret_name;
-	ret.name = ov.as(try_ret_name, 'ok')
+	ret.name = ov.as(try_ret_name, 'ok');
 	if (try_eat(state, '::')) {
-		if (ret.name !== module_name) {
-			add_error(state, 'incorrect module name: ' + ret.name + ' of function, expected: ' + module_name);
+		if (ret.name !== state.module_name) {
+			add_error(state, `incorrect module name: ${ret.name} of function, expected: ${state.module_name}`, place.line, place.position, place.line, place.position + ret.name.length);
 		}
 		const try_ret_name = eat_text(state);
 		if (ov.is(try_ret_name, 'err')) return try_ret_name;
@@ -116,6 +156,13 @@ function parse_fun_def(state, module_name) {
 		if (ov.is(try_tmp, 'err')) return try_tmp;
 		const tmp = ov.as(try_tmp, 'ok')
 		ret.ret_type.type = ov.mk('type', tmp);
+		if (state.parse_types) {
+			const try_tct_type = ptd_parser.try_value_to_ptd(tmp);
+			if (ov.is(try_tct_type, 'ok')) {
+				const tct_type = ov.as(try_tct_type, 'ok');
+				ret.ret_type.tct_type = tct_type;
+			}
+		}
 	}
 	ret.comment = ntokenizer.pop_last_comment(state.state);
 	const try_ret_cmd = parse_block(state);
@@ -175,10 +222,20 @@ function parse_fun_label(state, begin) {
 	if (try_eat(state, '::') && ntokenizer.is_text(state.state)) {
 		ret.name = ntokenizer.eat_text(state.state);
 		state.addReference(`${ret.module}::${ret.name}`, begin);
+		addModuleUsage(state, ret.module, begin);
 	} else {
 		add_error(state, 'reference of function can be taken only to public function');
 	}
 	return ret;
+}
+
+function addModuleUsage(state, module, place) {
+	if (state.module_name == module) return;
+	if (module in state.importsMap) {
+		state.importsMap[module].usageCount++;
+	} else {
+		add_error(state, `module \'${module}\' not imported`, place.line, place.position, place.line, place.position + module.length);
+	}
 }
 
 function parse_label(state, begin) {
@@ -191,6 +248,7 @@ function parse_label(state, begin) {
 		if (ov.is(try_fun_val_name, 'err')) return try_fun_val_name;
 		fun_val.name = ov.as(try_fun_val_name, 'ok');
 		state.addReference(`${fun_val.module}::${fun_val.name}`, begin);
+		addModuleUsage(state, fun_val.module, begin);
 	} else {
 		fun_val.name = word;
 		state.addReference(`${fun_val.name}`, begin);
@@ -605,9 +663,16 @@ function parse_block(state) {
 	while (!try_eat(state, '}')) {
 		if (try_eat(state, ';')) continue;
 		const try_tmp = parse_cmd(state);
-		if (ov.is(try_tmp, 'err')) return try_tmp;
-		const tmp = ov.as(try_tmp, 'ok')
-		cmds.push(tmp);
+		if (ov.is(try_tmp, 'err')) {
+			add_error(state, ov.as(try_tmp, 'err'));
+			const line = ntokenizer.get_line();
+			while (!ntokenizer.next_is(state.state, ';') && line === ntokenizer.get_line() && !ntokenizer.is_type(state.state, ov.mk('end'))) {
+				ntokenizer.get_next_token(state);
+			}
+		} else {
+			const tmp = ov.as(try_tmp, 'ok')
+			cmds.push(tmp);
+		}
 	}
 	const end_place = ntokenizer.get_place_ws(state.state);
 	const debug = { begin: begin_place, end: end_place, comment: [] };
@@ -924,9 +989,10 @@ function parse_cmd(state) {
 	return ov.mk('ok', { cmd: ret, debug: debug });
 }
 
-function sparse(s, module_name, parse_types, addMethod, addReference) {
+function sparse(s, module_name, addMethod, addReference) {
 	const state = {
 		errors: [],
+		warnings: [],
 		state: {
 			text: s,
 			len: s.length,
@@ -941,13 +1007,16 @@ function sparse(s, module_name, parse_types, addMethod, addReference) {
 			next_comment: [],
 		},
 		module_name: module_name,
-		parse_types: parse_types,
+		parse_types: true,
 		addReference: addReference,
 		varPositions: {},
+		importsMap: {}
 	};
 	ntokenizer.init(state.state);
-	const ret = parse_module(state, module_name, addMethod);
+	const ret = parse_module(state, addMethod);
 	ret.errors = state.errors;
+	ret.warnings = state.warnings;
+	ret.varPositions = state.varPositions;
 	return ret;
 }
 

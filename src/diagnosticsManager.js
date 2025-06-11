@@ -76,12 +76,12 @@ function updateDiagnostics(document) {
 		if (!referencesBack) return;
 		const diagnosticsList = [...thisModule.staticDiagnostics];
 
-		// Object.entries(thisModule.varPositions).forEach(([p, val]) => {
+		// Object.entries(thisModule.parsedModule.varPositions).forEach(([p, val]) => {
 		// 	if (ov.is(val, 'ref')) {
 		// 		const pos = p.split('|').map(part => parseInt(part));
 		// 		const ref = ov.as(val, 'ref');
 		// 		const defPos = positionToIndex(ref.line, ref.position);
-		// 		const def = ov.as(thisModule.varPositions[defPos], 'def');
+		// 		const def = ov.as(thisModule.parsedModule.varPositions[defPos], 'def');
 		// 		const ragne = new vscode.Range(pos[0] - 1, pos[1] - 1, pos[0] - 1, pos[1] - 1 + def.name.length);
 		// 		diagnosticsList.push(new vscode.Diagnostic(ragne, `ref ${def.name}`, vscode.DiagnosticSeverity.Information));
 		// 	} else if (ov.is(val, 'def')) {

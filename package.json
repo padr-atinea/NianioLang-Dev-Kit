@@ -2,7 +2,7 @@
     "name": "nianiolang-dev-kit",
     "displayName": "NianioLang Dev Kit",
     "description": "",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "publisher": "padr",
     "engines": {
         "vscode": "^1.98.0"
@@ -58,7 +58,12 @@
 				"nianiolang.onSave.addMissingModules": {
 					"type": "boolean",
 					"default": false,
-					"description": "(! jeszcze nie działa) Przy zapisie: dodaj brakukjące deklarace using"
+					"description": "Przy zapisie: dodaj brakukjące deklarace using"
+				},
+				"nianiolang.onSave.fixModuleNames": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy zapisie: popraw nazwy modułów przy deklaracji metod (kiedy nazwa modułu jest różna od nazwy pliku)"
 				},
 				"nianiolang.onPrettyPrintModule.removeMod": {
 					"type": "boolean",
@@ -69,13 +74,19 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Przy formatowaniu modułu: dodaj komentarz na górze pliku zwany stamp'em jeśli go nie ma"
+				},
+				"nianiolang.onMethodHover.showReferenceCount": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy najechaniu na metodę: pokaż liczbę referencji"
 				}
 			}
 		},
         "commands": [
             { "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
             { "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
-            { "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" }
+            { "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
+            { "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" }
         ],
 		"menus": {
 			"editor/context": [

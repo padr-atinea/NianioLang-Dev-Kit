@@ -7,8 +7,7 @@ const ov = require('./nianioLibs/ov');
 const nparser = require('./nianioLibs/nparser');
 const module_checker = require('./nianioLibs/module_checker');
 const pretty_printer = require('./nianioLibs/pretty_printer');
-
-
+const js_printer = require('./nianioLibs/js_printer');
 
 const moduleCache = {};
 const referenceCache = {};
@@ -646,16 +645,16 @@ function updateModule(document, checkIgnore = false) {
 		methods[name] = fun;
 	}
 
-	const parsedModule = nparser.sparse(text, thisModuleName, true, addMethod, addReference);
+	const parsedModule = nparser.sparse(text, thisModuleName, addMethod, addReference);
 
-	parsedModule.errors.forEach(err => staticDiagnostics.push(parseError(err)));
+	[parsedModule.errors, parsedModule.warnings].flat().forEach(err => staticDiagnostics.push(parseError(err)));
 
 	// if (parsedModule.errors.length === 0) console.log('OK ', thisModuleName);
 
-	const { errors, varPositions } = module_checker.check_module(parsedModule, false, {});
+	const errors = module_checker.check_module(parsedModule, true, {}, parsedModule.varPositions);
 	[errors.errors, errors.warnings].flat().forEach(err => staticDiagnostics.push(parseError(err)));
 
-	moduleCache[thisModuleName] = { filePath, methods, staticDiagnostics, lastUseStatementPos, usedModules, positions, varPositions, parsedModule }
+	moduleCache[thisModuleName] = { filePath, methods, staticDiagnostics, lastUseStatementPos, usedModules, positions, parsedModule }
 }
 
 function parseError(err) {
@@ -728,6 +727,12 @@ function getFunctionFromPos(parsedModule, pos) {
 	return null;
 }
 
+function refactorToJS(moduleName) {
+	const module = getModule(moduleName);
+	if (!module || module.parsedModule.errors.length > 0) return null;
+	return js_printer.print_module_to_str(module.parsedModule);
+}
+
 module.exports = {
 	updateModule,
 	removeModule,
@@ -741,4 +746,5 @@ module.exports = {
 	showDebugHoverInfo,
 	prettyPrintModule,
 	prettyPrintMethod,
+	refactorToJS,
 };
