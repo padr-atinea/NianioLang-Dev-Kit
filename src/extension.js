@@ -250,6 +250,14 @@ async function addImportAndTriggerSignatureHelp(moduleName, uri) {
 
 class NianioLangCodeActionProvider {
 	provideCodeActions(document, range, context, token) {
+		const moduleAction = new vscode.CodeAction('Pretty Print Module', vscode.CodeActionKind.Refactor);
+		moduleAction.command = { command: 'extension.prettyPrintModule', title: 'Pretty Print Module', arguments: [document] };
+
+		const methodAction = new vscode.CodeAction( 'Pretty Print Method', vscode.CodeActionKind.Refactor);
+		methodAction.command = { command: 'extension.prettyPrintMethod', title: 'Pretty Print Method', arguments: [document, range.start] };
+
+		return [moduleAction, methodAction];
+
 		// const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
 		// const thisModule = moduleManager.getModule(thisModuleName);
 		// if (!thisModule) return;

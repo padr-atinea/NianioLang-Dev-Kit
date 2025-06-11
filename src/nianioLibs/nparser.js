@@ -73,7 +73,7 @@ function parse_module(state, addMethod) {
 		} else {
 			add_error(state, ov.as(try_fun_def, 'err'));
 			while (!ntokenizer.next_is(state.state, 'def') && !ntokenizer.is_type(state.state, ov.mk('end'))) {
-				ntokenizer.get_next_token(state);
+				ntokenizer.get_next_token(state.state);
 			}
 		}
 	}
@@ -665,9 +665,9 @@ function parse_block(state) {
 		const try_tmp = parse_cmd(state);
 		if (ov.is(try_tmp, 'err')) {
 			add_error(state, ov.as(try_tmp, 'err'));
-			const line = ntokenizer.get_line();
-			while (!ntokenizer.next_is(state.state, ';') && line === ntokenizer.get_line() && !ntokenizer.is_type(state.state, ov.mk('end'))) {
-				ntokenizer.get_next_token(state);
+			const line = ntokenizer.get_line(state.state);
+			while (!ntokenizer.next_is(state.state, ';') && line === ntokenizer.get_line(state.state) && !ntokenizer.is_type(state.state, ov.mk('end'))) {
+				ntokenizer.get_next_token(state.state);
 			}
 		} else {
 			const tmp = ov.as(try_tmp, 'ok')

@@ -43,7 +43,7 @@ function print_imports(state, imports) {
 		imps.push(`use ${imp.name};`);
 	}
 	state_print(state, imps.join('\n'));
-	state_print(state, `\n\n`);
+	state_print(state, `\n`);
 }
 
 function print_module_to_str(mod, removeMod = false, printNewStamp = false) {
@@ -51,8 +51,9 @@ function print_module_to_str(mod, removeMod = false, printNewStamp = false) {
 	print_stamp(state, mod.stamp);
 	print_imports(state, mod.imports);
 	for (const function_ of mod.fun_def) {
+		state_print(state, `\n`);
 		print_fun_def(state, function_, mod.module_name);
-		state_print(state, `\n\n`);
+		state_print(state, `\n`);
 	}
 	print_comment(state, mod.ending_comment, 0, 0);
 	return state.out;
@@ -155,7 +156,7 @@ function print_hash_elem(elem) {
 	if (ov.is(elem.val.value, 'hash_decl') || ov.is(elem.val.value, 'arr_decl')) {
 		var key = ov.as(elem.key.value, 'hash_key');
 		if (!(is_proper_hash_key(key))) key = `\'${key}\'`;
-		return get_compressed_fun_val(elem.val, `${key}: `, '');
+		return get_compressed_fun_val(elem.val, `${key} => `, '');
 	}
 	return wprinter.build_pretty_l([
 			print_val(elem.key),
@@ -577,7 +578,7 @@ function print_cmd(state, cmd, ind) {
 			start = print_var_decl(var_decl);
 		}
 		wprinter.print_t(state, wprinter.build_pretty_a([
-				wprinter.build_sim('for('),
+				wprinter.build_sim('for ('),
 				start,
 				wprinter.build_sim(';'),
 				wprinter.get_sep(),
