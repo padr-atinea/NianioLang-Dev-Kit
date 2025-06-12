@@ -1,5 +1,5 @@
-const ov = require('./ov');
-const tct = require('./tct');
+const ov = require('../base/ov');
+const tct = require('../type_checker/tct');
 
 function parse_hash(fun_arg) {
 	var hash_decl = ov.as(fun_arg.value, 'hash_decl');

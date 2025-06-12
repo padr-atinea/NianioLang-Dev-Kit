@@ -1,5 +1,5 @@
-const ov = require('./ov');
-const nast = require('./nast');
+const ov = require('../base/ov');
+const nast = require('../base/nast');
 
 const get_next_nth_char = (state, number) => state.text[state.pos + number] ?? '';
 const get_char = (state) => get_next_nth_char(state, 0);

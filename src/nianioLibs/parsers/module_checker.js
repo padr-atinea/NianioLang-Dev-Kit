@@ -1,4 +1,4 @@
-const ov = require('./ov');
+const ov = require('../base/ov');
 const ptd_parser = require('./ptd_parser');
 
 
@@ -49,27 +49,23 @@ const ptd_parser = require('./ptd_parser');
 // 	return ret;
 // }
 
-function add_error(errors, msg, line = null, column = -1, endLine = null, endColumn = null) {
+function add_error(errors, msg, debug, length = 0) {
+	debug.end.position += length;
 	errors.errors.push({
 		message: msg,
-		line: line ?? errors.current_line,
 		module: errors.module,
 		type: ov.mk('error'),
-		column: column,
-		endLine: endLine ?? line ?? errors.current_line,
-		endColumn: endColumn ?? column,
+		debug: debug ?? errors.current_debug,
 	});
 }
 
-function add_warning(errors, msg, line, column, endLine, endColumn) {
+function add_warning(errors, msg, debug, length = 0) {
+	debug.end.position += length;
 	errors.warnings.push({
 		message: msg,
-		line: line,
 		module: errors.module,
 		type: ov.mk('warning'),
-		column: column,
-		endLine: endLine,
-		endColumn: endColumn,
+		debug: debug ?? errors.current_debug,
 	});
 }
 
@@ -82,7 +78,7 @@ function set_used_function(fun_key, func, func_used) {
 	}
 }
 
-function check_module(module, check_public_fun, functions, varPositions) {
+function check_module(module, check_public_fun, functions) {
 	const errors = {errors: [], warnings: [], current_line: -1, module: module.name};
 	const called = {func: {}, module: {}};
 	const state = {
@@ -92,12 +88,14 @@ function check_module(module, check_public_fun, functions, varPositions) {
 		called: called,
 		vars: {},
 		errors: errors,
-		varPositions: varPositions,
+		varPositions: module.varPositions,
 	};
 	const func = {};
 	const func_used = {};
 	for (const fun_def of module.fun_def) {
-		state.errors.current_line = fun_def.line;
+		const fun_key = get_fun_key(ov.is(fun_def.access, 'pub') ? module.name : '', fun_def.name, module.name);
+		state.errors.current_line = fun_def.line; 
+		state.errors.current_debug = { begin: { line: fun_def.line, position: 4 }, end: { line: fun_def.line, position: 4 + fun_key.length } };
 		state.vars = {};
 		state.return = {was: false, arg: check_return_type(fun_def.ret_type.type, state)};
 		const prev = save_block(state);
@@ -116,7 +114,6 @@ function check_module(module, check_public_fun, functions, varPositions) {
 		if (!state.return.was) {
 			if (ov.is(state.return.arg, 'value') || ov.is(state.return.arg, 'was_value')) add_error(state.errors, 'no return value at end of function');
 		}
-		const fun_key = get_fun_key(ov.is(fun_def.access, 'pub') ? module.name : '', fun_def.name, module.name);
 		func[fun_key] = state.called.func;
 		functions[fun_key] = state.called.func;
 		if(!(ov.is(fun_def.access, 'priv'))) func_used[fun_key] = 0;;
@@ -141,9 +138,11 @@ function check_module(module, check_public_fun, functions, varPositions) {
 		}
 		for (const fun_def of module.fun_def) {
 			if (ov.is(fun_def.access, 'pub')) continue;
-			if (Object.keys(get_fun_key(ov.is(fun_def.access, 'pub')).includes(func_used) ? module.name : '', fun_def.name, module.name)) continue;
-			state.errors.current_line = fun_def.line;	
-			add_warning(state.errors, 'unused function: ' + module.name + '_priv::' + fun_def.name, fun_def.line, 0, fun_def.cmd.debug.end.line, fun_def.cmd.debug.end.position);
+			const fun_key = get_fun_key('', fun_def.name, module.name);
+			if (Object.keys(func_used).includes(fun_key)) continue;
+			state.errors.current_line = fun_def.line;
+			state.errors.current_debug = { begin: { line: fun_def.line, position: 4 }, end: { line: fun_def.line, position: 4 + fun_key.length } };
+			add_warning(state.errors, `unused function: ${module.name}_priv::${fun_def.name}`, fun_def.cmd.debug);
 		}
 	}
 	return state.errors;
@@ -193,7 +192,7 @@ function check_types_imported(type, state) {
 			var fun_name = ref_name.slice(ix + 2, ref_name.length - ix - 2);
 			add_fun_used(module, fun_name, state);
 		} else {
-			add_error(state.errors, 'wrong type function name \'' + ref_name + '\' ');
+			add_error(state.errors, `wrong type function name \'${ref_name}\' `);
 		}
 	} else if (ov.is(type, 'tct_void')) {
 	} else if (ov.is(type, 'tct_int')) {
@@ -268,7 +267,7 @@ function check_type(type, state) {
 
 function add_var(var_dec, is_const, is_required, initialized, state) {
 	if (Object.keys(state.vars).includes(var_dec.name)) {
-		add_error(state.errors, 'redeclaration variable: ' + var_dec.name, var_dec.place.line, var_dec.place.position, var_dec.place.line, var_dec.place.position + var_dec.name.length);
+		add_error(state.errors, `redeclaration variable: ${var_dec.name}`, { begin: { ...var_dec.place }, end: { ...var_dec.place } }, var_dec.name.length);
 	}
 	const val = {
 		write: ov.mk('none'),
@@ -287,20 +286,21 @@ function add_var(var_dec, is_const, is_required, initialized, state) {
 }
 
 function use_var(name, mode, state, place) {
+	const debug = { begin: { ...place }, end: { ...place } };
 	if (!Object.keys(state.vars).includes(name)) {
-		add_error(state.errors, `unknown variable: ${name}`, place.line, place.position, place.line, place.position + name.length);
+		add_error(state.errors, `unknown variable: ${name}`, debug, name.length);
 		return;
 	}
 	
 	if (ov.is(mode, 'get')) {
 		state.vars[name].read = true;
 		if (!state.vars[name].initialized) {	
-			add_error(state.errors, `variable ${name} can be uninitilized in some paths`, place.line, place.position, place.line, place.position + name.length); 
+			add_error(state.errors, `variable ${name} can be uninitilized in some paths`, debug, name.length); 
 			state.vars[name].initialized = true;
 		}
 	} else if (ov.is(mode, 'set')) {
 		if (ov.is(state.vars[name].write, 'const')) {
-			add_error(state.errors, `can\'t change const variable: ${name}`, place.line, place.position, place.line, place.position + name.length);
+			add_error(state.errors, `can\'t change const variable: ${name}`, debug, name.length);
 			return;
 		}
 		state.vars[name].initialized = true;
@@ -308,7 +308,7 @@ function use_var(name, mode, state, place) {
 	} else if (ov.is(mode, 'mod')) {
 		state.vars[name].read = true;
 		if (ov.is(state.vars[name].write, 'const')) {
-			add_error(state.errors, `can\'t change const variable: ${name}`, place.line, place.position, place.line, place.position + name.length);
+			add_error(state.errors, `can\'t change const variable: ${name}`, debug, name.length);
 			return;
 		}
 		state.vars[name].write = ov.mk('value');
@@ -336,8 +336,9 @@ function add_var_dec(var_dec, is_const, is_required, is_initialized, state) {
 
 function check_cmd(cmd, state) {
 	state.errors.current_line = cmd.debug.begin.line;
+	state.errors.current_debug = cmd.debug;
 	if (state.return.was) {
-		add_warning(state.errors, 'never used command', cmd.debug.begin.line, cmd.debug.begin.position, cmd.debug.end.line, cmd.debug.end.position);
+		add_warning(state.errors, 'never used command', cmd.debug);
 		state.return.was = false;
 	}
 	if (ov.is(cmd.cmd, 'if')) {
@@ -438,11 +439,11 @@ function check_cmd(cmd, state) {
 		state.return.was = false;
 	} else if (ov.is(cmd.cmd, 'break')) {
 		if (!state.in_loop) {
-			add_error(state.errors, 'command break can be used only in cyclic block', cmd.debug.begin.line, cmd.debug.begin.position, cmd.debug.begin.line, cmd.debug.begin.position + 'break'.length);
+			add_error(state.errors, 'command break can be used only in cyclic block', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } }, 'break'.length);
 		}
 	} else if (ov.is(cmd.cmd, 'continue')) {
 		if (!state.in_loop) {
-			add_error(state.errors, 'command continue can be used only in cyclic block');
+			add_error(state.errors, 'command continue can be used only in cyclic block', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } }, 'continue'.length);
 		}
 	} else if (ov.is(cmd.cmd, 'match')) {
 		const as_match = ov.as(cmd.cmd, 'match');
@@ -472,17 +473,17 @@ function check_cmd(cmd, state) {
 		const as_return = ov.as(cmd.cmd, 'return');
 		check_val(as_return, state);
 		if (ov.is(state.return.arg, 'value')) {
-			if (ov.is(as_return.value, 'nop')) add_error(state.errors, 'return command without value', cmd.debug.begin.line, cmd.debug.begin.position);
+			if (ov.is(as_return.value, 'nop')) add_error(state.errors, 'return command without value', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } });
 		} else if (ov.is(state.return.arg, 'none')) {
 			state.return.arg = ov.is(as_return.value, 'nop') ? ov.mk('was_void') : ov.mk('was_value');
 		} else if (ov.is(state.return.arg, 'was_value')) {
-			if (ov.is(as_return.value, 'nop')) add_error(state.errors, 'previously was return with value', cmd.debug.begin.line, cmd.debug.begin.position);
+			if (ov.is(as_return.value, 'nop')) add_error(state.errors, 'previously was return with value', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } });
 			state.return.arg = ov.is(as_return.value, 'nop') ? ov.mk('was_void') : ov.mk('was_value');
 		} else if (ov.is(state.return.arg, 'was_void')) {
-			if (!(ov.is(as_return.value, 'nop'))) add_error(state.errors, 'previously was empty return', cmd.debug.begin.line, cmd.debug.begin.position);
+			if (!(ov.is(as_return.value, 'nop'))) add_error(state.errors, 'previously was empty return', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } });
 			state.return.arg = ov.is(as_return.value, 'nop') ? ov.mk('was_void') : ov.mk('was_value');
 		} else if (ov.is(state.return.arg, 'void')) {
-			if (!(ov.is(as_return.value, 'nop'))) add_error(state.errors, 'return value in void function', cmd.debug.begin.line, cmd.debug.begin.position);
+			if (!(ov.is(as_return.value, 'nop'))) add_error(state.errors, 'return value in void function', { begin: { ...cmd.debug.begin }, end: { ...cmd.debug.begin } });
 		}
 		for (const key of Object.keys(state.vars)) {
 			state.vars[key].initialized = true;
@@ -546,7 +547,7 @@ function check_lvalue(lval, state) {
 		check_lvalue(ov.as(lval.value, 'parenthesis'), state);
 		return;
 	}
-	add_error(state.errors, 'invalid expression for lvalue', lval.debug.begin.line, lval.debug.begin.position);
+	add_error(state.errors, 'invalid expression for lvalue', lval.debug);
 }
 
 function check_val(val, state) {
@@ -626,7 +627,7 @@ function load_block(state, prev, endPlace) {
 			info.endPlace = endPlace;
 			delete state.vars[key];
 			if (!info.read && !info.is_required) {
-				add_warning(state.errors, 'never read variable: ' + key, info.defPlace.line, info.defPlace.position, info.defPlace.line, info.defPlace.position + info.name.length);
+				add_warning(state.errors, 'never read variable: ' + key, { begin: { ...info.defPlace }, end: { ...info.defPlace } }, info.name.length);
 			}
 		}
 	}

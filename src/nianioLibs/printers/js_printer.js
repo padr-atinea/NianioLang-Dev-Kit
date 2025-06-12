@@ -1,108 +1,85 @@
-const ov = require('./ov');
+const ov = require('../base/ov');
 const wprinter = require('./wprinter');
 
 function state_print(state, str) {
 	state.out += str;
 }
 
-// function print_module_to_struct(mod) {
-// 	var struct = {imports: [], function_s: []};
-// 	for (const imp of mod.imports) {
-// 		struct.imports.push('use ' + imp.name + ';' + '\n');
-// 	}
-// 	for (const function_ of mod.fun_def) {
-// 		var state = {out: ''};
-// 		state_print(state, '\n');
-// 		print_fun_def_head(state, function_, mod.name);
-// 		var head = state.out;
-// 		state.out = '';
-// 		for (const c of ov.as(function_.cmd.cmd, 'block').cmds) {
-// 			state_print(state, '\n' + pind(1));
-// 			print_cmd(state, c, 1);
-// 		}
-// 		struct.function_s.push({
-// 				name: (ov.is(function_.access, 'priv') ? '::' : '') + function_.name,
-// 				head: head,
-// 				body: state.out
-// 			});
-// 	}
-// 	return struct;
-// }
-
-function print_stamp(state, stamp) {
-	if (stamp !== '') {
-		state_print(state, `${stamp}\n\n\n`);
-	} else if (state.printNewStamp) {
-		state_print(state, `###\n# (c) Atinea Sp. z o.o.\n###\n\n\n`);
-	}
-}
-
 function print_imports(state, imports) {
 	var imps = [];
-	for (const imp of imports) {
-		imps.push(`use ${imp.name};`);
+	imps.push(`const ov = require('./base/ov');`);
+	for (const imp of imports.filter(i => i !== 'ov')) {
+		imps.push(`const ${imp.name} = require('./${['array', 'string', 'hash', 'nast'].includes(imp.name) ? `base/` : ''}${imp.name}');`);
 	}
 	state_print(state, imps.join('\n'));
-	state_print(state, `\n`);
+	state_print(state, `\n\n`);
 }
 
-function print_module_to_str(mod, removeMod = false, printNewStamp = false) {
-	var state = { out: '', removeMod, printNewStamp };
-	print_stamp(state, mod.stamp);
+function print_module_to_str(mod) {
+	var state = { out: '', removeMod: true, printNewStamp: true, exports: [] };
 	print_imports(state, mod.imports);
 	for (const function_ of mod.fun_def) {
-		state_print(state, `\n`);
-		print_fun_def(state, function_, mod.module_name);
-		state_print(state, `\n`);
+		if (ov.is(function_.defines_type, 'yes')) continue;
+		try {
+			print_fun_def(state, function_, mod.module_name);
+			state_print(state, `\n\n`);
+		} catch (e) {
+			console.log(e.message);
+			console.log(e.stack);
+		}
 	}
 	print_comment(state, mod.ending_comment, 0, 0);
+
+	state_print(state, `\n\nmodule.exports = {\n\t${state.exports.join(',\n\t')}\n}`)
+
 	return state.out;
 }
 
-function print_fun_def(state, function_, module) {
+function print_fun_def(state, function_, module_name) {
 	print_comment(state, function_.comment, 0, 0);
-	print_fun_def_head(state, function_, module);
+	print_fun_def_head(state, function_, module_name);
 	print_st(state, function_.cmd, 0);
 }
 
-function print_fun_def_head(state, function_, module) {
+function print_fun_def_head(state, function_, module_name) {
 	var name = '';
 	if (ov.is(function_.access, 'pub')) {
-		name += `${module}::`;
+		state.exports.push(function_.name);
+		// name += `${module_name}::`;
 	} else if (ov.is(function_.access, 'priv')) {
 	}
 	name += function_.name;
 	var ret = [
-			wprinter.build_sim('def'),
+			wprinter.build_sim('function'),
 			wprinter.get_sep(),
 			wprinter.build_sim(name),
 			wprinter.build_sim('(')
 		];
 	for (let i = 0; i < function_.args.length; i++) {
 		var el = function_.args[i];
-		if (ov.is(el.mod, 'ref')) {
-			ret.push(...[wprinter.build_sim('ref'), wprinter.get_sep()]);
-		} else if (ov.is(el.mod, 'none')) {
-		}
+		// if (ov.is(el.mod, 'ref')) {
+		// 	ret.push(...[wprinter.build_sim('ref'), wprinter.get_sep()]);
+		// } else if (ov.is(el.mod, 'none')) {
+		// }
 		ret.push(wprinter.build_sim(el.name));
-		if (ov.is(el.type, 'type')) {
-			const type = ov.as(el.type, 'type');
-			ret.push(...[wprinter.get_sep(), wprinter.build_sim(':'), wprinter.get_sep(), print_val(type)]);
-		} else if (ov.is(el.type, 'none')) {
-		}
+		// if (ov.is(el.type, 'type')) {
+		// 	const type = ov.as(el.type, 'type');
+		// 	ret.push(...[wprinter.get_sep(), wprinter.build_sim(':'), wprinter.get_sep(), print_val(type)]);
+		// } else if (ov.is(el.type, 'none')) {
+		// }
 		if (i != function_.args.length - 1) ret.push(...[wprinter.build_sim(','), wprinter.get_sep()]);
 	}
 	ret.push(wprinter.build_sim(')'));
-	if (ov.is(function_.ret_type.type, 'type')) {
-		const type = ov.as(function_.ret_type.type, 'type');
-		ret.push(...[
-				wprinter.get_sep(),
-				wprinter.build_sim(':'),
-				wprinter.get_sep(),
-				print_sim_value(type)
-			]);
-	} else if (ov.is(function_.ret_type.type, 'none')) {
-	}
+	// if (ov.is(function_.ret_type.type, 'type')) {
+	// 	const type = ov.as(function_.ret_type.type, 'type');
+	// 	ret.push(...[
+	// 			wprinter.get_sep(),
+	// 			wprinter.build_sim(':'),
+	// 			wprinter.get_sep(),
+	// 			print_sim_value(type)
+	// 		]);
+	// } else if (ov.is(function_.ret_type.type, 'none')) {
+	// }
 	wprinter.print_t(state, wprinter.build_pretty_l(ret), 0);
 }
 
@@ -116,19 +93,19 @@ function join_print_var_decl(aval) {
 }
 
 function print_var_decl(var_decl) {
-	var list = [wprinter.build_sim('var'), wprinter.get_sep()];
-	if (ov.is(var_decl.type, 'type')) {
-		const type = ov.as(var_decl.type, 'type');
-		list.push(...[
-				wprinter.build_sim(var_decl.name),
-				wprinter.get_sep(),
-				wprinter.build_sim(':'),
-				wprinter.get_sep(),
-				print_val(type)
-			]);
-	} else if (ov.is(var_decl.type, 'none')) {
-		list.push(wprinter.build_sim(var_decl.name));
-	}
+	var list = [wprinter.build_sim('let'), wprinter.get_sep()];
+	// if (ov.is(var_decl.type, 'type')) {
+	// 	const type = ov.as(var_decl.type, 'type');
+	// 	list.push(...[
+	// 			wprinter.build_sim(var_decl.name),
+	// 			wprinter.get_sep(),
+	// 			wprinter.build_sim(':'),
+	// 			wprinter.get_sep(),
+	// 			print_val(type)
+	// 		]);
+	// } else if (ov.is(var_decl.type, 'none')) {
+	// }
+	list.push(wprinter.build_sim(var_decl.name));
 	if (ov.is(var_decl.value, 'value')) {
 		const value = ov.as(var_decl.value, 'value');
 		list.push(...[wprinter.get_sep(), wprinter.build_sim('='), wprinter.get_sep(), print_val(value)]);
@@ -156,12 +133,11 @@ function print_hash_elem(elem) {
 	if (ov.is(elem.val.value, 'hash_decl') || ov.is(elem.val.value, 'arr_decl')) {
 		var key = ov.as(elem.key.value, 'hash_key');
 		if (!(is_proper_hash_key(key))) key = `\'${key}\'`;
-		return get_compressed_fun_val(elem.val, `${key} => `, '');
+		return get_compressed_fun_val(elem.val, `${key}: `, '');
 	}
 	return wprinter.build_pretty_l([
 			print_val(elem.key),
-			wprinter.get_sep(),
-			wprinter.build_sim('=>'),
+			wprinter.build_sim(':'),
 			wprinter.get_sep(),
 			print_val(elem.val)
 		]);
@@ -174,23 +150,26 @@ function print_variant(variant) {
 		return wprinter.build_sim('false');
 	}
 	if (ov.is(variant.var.value, 'arr_decl') || ov.is(variant.var.value, 'hash_decl')) {
-		return get_compressed_fun_val(variant.var, `:${variant.name}(`, ')');
+		return get_compressed_fun_val(variant.var, `ov.mk('${variant.name}', `, ')');
 	}
 	var ret = [];
-	ret.push(wprinter.build_sim(`:${variant.name}`));
-	if (!ov.is(variant.var.value, 'nop')) ret.push(...[wprinter.build_sim('('), print_val(variant.var), wprinter.build_sim(')')]);
+	ret.push(...[wprinter.build_sim(`ov.mk('${variant.name}'`)]);
+	if (!ov.is(variant.var.value, 'nop')) {
+		ret.push(...[wprinter.build_sim(', '), print_val(variant.var)]);
+	}
+	ret.push(wprinter.build_sim(`)`));
 	return wprinter.build_pretty_op_l(ret);
 }
 
-function print_variant_case_decl(variant) {
-	var ret = [wprinter.build_sim(`:${variant.name}`)];
-	if (ov.is(variant.value, 'value')) {
-		const value = ov.as(variant.value, 'value');
-		ret.push(...[wprinter.build_sim('('), print_var_decl(value.declaration), wprinter.build_sim(')')]);
-	} else if (ov.is(variant.value, 'none')) {
-	}
-	return wprinter.build_pretty_op_l(ret);
-}
+// function print_variant_case_decl(variant) {
+// 	var ret = [wprinter.build_sim(`:${variant.name}`)];
+// 	if (ov.is(variant.value, 'value')) {
+// 		const value = ov.as(variant.value, 'value');
+// 		ret.push(...[wprinter.build_sim('('), print_var_decl(value.declaration), wprinter.build_sim(')')]);
+// 	} else if (ov.is(variant.value, 'none')) {
+// 	}
+// 	return wprinter.build_pretty_op_l(ret);
+// }
 
 function join_print_fun_arg(aval) {
 	var ret = [];
@@ -204,7 +183,7 @@ function join_print_fun_arg(aval) {
 function print_fun_arg(arg) {
 	var ret = [];
 	if (ov.is(arg.mod, 'ref')) {
-		ret.push(...[wprinter.build_sim('ref'), wprinter.get_sep()]);
+		// ret.push(...[wprinter.build_sim('ref'), wprinter.get_sep()]);
 	} else if (ov.is(arg.mod, 'none')) {
 	}
 	ret.push(print_val(arg.val));
@@ -253,11 +232,11 @@ function print_st(state, cmd, ind) {
 }
 
 function get_fun_label(fun_name, fun_module) {
-	return fun_module === '' ? fun_name : (`${fun_module}::${fun_name}`);
+	return fun_module === '' ? fun_name : (`${fun_module === 'enum' ? 'ov' : fun_module}.${fun_name}`);
 }
 
 function string_to_nl(str) {
-	return str.replace(/'/g, '\'\'');
+	return str.replaceAll('\'', '\\\'');
 }
 
 function join_print_val(aval) {
@@ -291,11 +270,11 @@ function print_val(val) {
 		const str_arr = ov.as(val.value, 'string');
 		var arr  = [];
 		for (const el of str_arr.arr) {
-			arr.push(`\'${string_to_nl(el)}`);
+			arr.push(`'${string_to_nl(el)}'+`);
 		}
 		if (ov.is(str_arr.last, 'new_line')) {
 		} else if (ov.is(str_arr.last, 'end')) {
-			arr[arr.length - 1] = `${arr[arr.length - 1]}\'`;
+			arr[arr.length - 1] = arr[arr.length - 1].slice(0, -1);
 		}
 		return wprinter.build_str_arr(arr, str_arr.last);
 	} else if (ov.is(val.value, 'bool')) {
@@ -328,16 +307,16 @@ function print_val(val) {
 		var op = bin_op.op;
 		if (op === 'ARRAY_INDEX') {
 			return wprinter.build_pretty_a([
-					wprinter.build_pretty_l([print_val(bin_op.left), wprinter.build_sim('[')]),
-					print_val(bin_op.right),
-					wprinter.build_sim(']')
-				]);
+				wprinter.build_pretty_l([print_val(bin_op.left), wprinter.build_sim('[')]),
+				print_val(bin_op.right),
+				wprinter.build_sim(']')
+			]);
 		} else if (op === 'HASH_INDEX') {
 			return wprinter.build_pretty_a([
-					wprinter.build_pretty_l([print_val(bin_op.left), wprinter.build_sim('{')]),
-					print_val(bin_op.right),
-					wprinter.build_sim('}')
-				]);
+				wprinter.build_pretty_l([print_val(bin_op.left), wprinter.build_sim('[')]),
+				print_val(bin_op.right),
+				wprinter.build_sim(']')
+			]);
 		} else if (op === '->') {
 			var left;
 			if (is_to_change_ov(bin_op.left)) {
@@ -349,26 +328,52 @@ function print_val(val) {
 			} else {
 				left = print_val(bin_op.left);
 			}
-			return wprinter.build_pretty_op_l([left, wprinter.build_sim(op), print_val(bin_op.right)]);
+			return wprinter.build_pretty_op_l([left, wprinter.build_sim('.'), print_val(bin_op.right)]);
 		} else if (op === 'OV_AS') {
-			return wprinter.build_pretty_op_l([
-					print_val(bin_op.left),
-					wprinter.get_sep(),
-					wprinter.build_sim('as'),
-					wprinter.get_sep(),
-					wprinter.build_sim(':'),
-					wprinter.build_sim(ov.as(bin_op.right.value, 'hash_key'))
-				]);
+			return wprinter.build_pretty_a([
+				wprinter.build_sim('ov.as'),
+				wprinter.build_sim('('),
+				print_val(bin_op.left),
+				wprinter.build_sim(','),
+				wprinter.get_sep(),
+				wprinter.build_sim('\''),
+				wprinter.build_sim(ov.as(bin_op.right.value, 'hash_key')),
+				wprinter.build_sim('\''),
+				wprinter.build_sim(')'),
+			]);
 		} else if (op === 'OV_IS') {
-			return wprinter.build_pretty_op_l([
+			try {
+				return wprinter.build_pretty_a([
+					wprinter.build_sim('ov.is'),
+					wprinter.build_sim('('),
 					print_val(bin_op.left),
+					wprinter.build_sim(','),
 					wprinter.get_sep(),
-					wprinter.build_sim('is'),
-					wprinter.get_sep(),
-					wprinter.build_sim(':'),
-					wprinter.build_sim(ov.as(bin_op.right.value, 'hash_key'))
+					wprinter.build_sim('\''),
+					wprinter.build_sim(ov.as(bin_op.right.value, 'hash_key')),
+					wprinter.build_sim('\''),
+					wprinter.build_sim(')'),
 				]);
+			} catch (e) {
+				console.log(e.message);
+				console.log(e.stack);
+			}
+		} else if (op === '[]=') {
+			return wprinter.build_pretty_a([
+				print_val(bin_op.left),
+				wprinter.build_sim('.push'),
+				wprinter.build_sim('('),
+				print_val(bin_op.right),
+				wprinter.build_sim(')'),
+			]);
 		} else {
+			op = {
+				'eq': '===',
+				'ne': '!==',
+				'.=': '+=',
+				'.': '+',
+			}[op] ?? op;
+
 			return wprinter.build_pretty_op_l([
 					wprinter.build_pretty_op_l([print_val(bin_op.left), wprinter.get_sep(), wprinter.build_sim(op)]),
 					wprinter.get_sep(),
@@ -423,23 +428,23 @@ function print_val(val) {
 	}
 }
 
-function print_cond_mod(state, header, cmd, arg_list, cond, ind) {
-	var ret = [
-			wprinter.build_sim(header),
-			wprinter.get_sep(),
-			wprinter.build_pretty_l(join_print_var_decl(arg_list))
-		];
-	if (arg_list.length > 0) ret.push(wprinter.build_sim(' '));
-	if (arg_list.length > 0) ret.push(wprinter.build_sim('('));
-	ret.push(print_val(cond));
-	if (arg_list.length > 0) ret.push(wprinter.build_sim(')'));
-	wprinter.print_t(state, wprinter.build_pretty_a([
-			print_simple_statement(cmd),
-			wprinter.get_sep(),
-			wprinter.build_pretty_op_l(ret)
-		]), ind);
-	state_print(state, ';');
-}
+// function print_cond_mod(state, header, cmd, arg_list, cond, ind) {
+// 	var ret = [
+// 			wprinter.build_sim(header),
+// 			wprinter.get_sep(),
+// 			wprinter.build_pretty_l(join_print_var_decl(arg_list))
+// 		];
+// 	if (arg_list.length > 0) ret.push(wprinter.build_sim(' '));
+// 	if (arg_list.length > 0) ret.push(wprinter.build_sim('('));
+// 	ret.push(print_val(cond));
+// 	if (arg_list.length > 0) ret.push(wprinter.build_sim(')'));
+// 	wprinter.print_t(state, wprinter.build_pretty_a([
+// 			print_simple_statement(cmd),
+// 			wprinter.get_sep(),
+// 			wprinter.build_pretty_op_l(ret)
+// 		]), ind);
+// 	state_print(state, ';');
+// }
 
 function print_loop(state, header, cmd, arg_list, cond, ind) {
 	var pprint = [wprinter.build_sim(header), wprinter.get_sep()];
@@ -463,33 +468,50 @@ function print_loop_or_mod(state, short, header, cmd, arg_list, cond, ind) {
 			const block = { debug: cmd.debug, cmd: { block: { cmds: [cmd], ending_comment: [] } } };
 			print_loop(state, header, block, arg_list, cond, ind);
 		} else {
-			print_cond_mod(state, header, cmd, arg_list, cond, ind);
+			// print_cond_mod(state, header, cmd, arg_list, cond, ind);
 		}
 	} else {
 		print_loop(state, header, cmd, arg_list, cond, ind);
 	}
 }
 
-function print_try_ensure(value, typ) {
-	var pprint = [wprinter.build_sim(typ)];
+function print_try_ensure(state, value, type, ind) {
+	const print_if_err_cmd = (var_decl_name, value) => {
+		const var_decl = create_var_decl(var_decl_name, value);
+		const if_err = cmd_({ if: {
+			cond: create_is_cond({ var: var_decl_name }, { hash_key: 'err' }),
+			if: cmd_(type === 'ensure' ? ({ die: [] }) : ({ return: vt_({ var: var_decl_name })})),
+			elsif: [],
+			else: cmd_({ nop: null }),
+		}})
+		flush_sim_statement(state, print_var_decl(ov.as(var_decl.cmd, 'var_decl')), ind);
+		state_print(state, '\n' + pind(ind));
+		print_cmd(state, if_err, ind);
+		state_print(state, '\n' + pind(ind));
+	}
+
 	if (ov.is(value, 'decl')) {
 		const decl = ov.as(value, 'decl');
-		pprint.push(...[wprinter.get_sep(), print_var_decl(decl)]);
+		const var_decl_name = `${type}_${decl.name}`;
+		print_if_err_cmd(var_decl_name, decl.value);
+		decl.value = create_ov_as(var_decl_name, 'ok');
+		flush_sim_statement(state, print_var_decl(decl), ind);
+		state_print(state, '\n' + pind(ind));
 	} else if (ov.is(value, 'expr')) {
 		const expr = ov.as(value, 'expr');
-		pprint.push(...[wprinter.get_sep(), print_val(expr)]);
+		print_if_err_cmd(get_var_name(expr, type), { value: expr });
 	} else if (ov.is(value, 'lval')) {
 		const bin_op = ov.as(value, 'lval');
-		pprint.push(...[
-				wprinter.get_sep(),
-				print_val(bin_op.left),
-				wprinter.get_sep(),
-				wprinter.build_sim(bin_op.op),
-				wprinter.get_sep(),
-				print_val(bin_op.right)
-			]);
+		const var_decl_name = get_var_name(bin_op.left, type);
+		print_if_err_cmd(var_decl_name, { value: bin_op.right });
+		flush_sim_statement(state, wprinter.build_pretty_l([
+			print_val(vt_({ var: var_decl_name })),
+			wprinter.get_sep(),
+			wprinter.build_sim(bin_op.op),
+			wprinter.get_sep(),
+			print_val(create_ov_as(var_decl_name, 'ok').value)
+		]), ind);
 	}
-	return wprinter.build_pretty_l(pprint);
 }
 
 function print_return(as_return) {
@@ -517,34 +539,36 @@ function print_continue() {
 }
 
 function print_die(as_die) {
-	var pprint = [wprinter.build_sim('die')];
+	var pprint = [wprinter.build_sim('throw new Error')];
+	pprint.push(wprinter.build_sim('('));
 	if (as_die.length > 0) pprint.push(...[
-		wprinter.build_sim('('),
+		wprinter.build_sim('{'),
 		wprinter.build_pretty_l(join_print_val(as_die)),
-		wprinter.build_sim(')')
+		wprinter.build_sim('}'),
 	]);
+	pprint.push(wprinter.build_sim(')'));
 	return wprinter.build_pretty_a(pprint);
 }
 
-function print_simple_statement(cmd) {
-	if (ov.is(cmd.cmd, 'value')) {
-		return print_sim_value(ov.as(cmd.cmd, 'value'));
-	} else if (ov.is(cmd.cmd, 'return')) {
-		return print_return(ov.as(cmd.cmd, 'return'));
-	} else if (ov.is(cmd.cmd, 'break')) {
-		return print_break();
-	} else if (ov.is(cmd.cmd, 'continue')) {
-		return print_continue();
-	} else if (ov.is(cmd.cmd, 'die')) {
-		return print_die(ov.as(cmd.cmd, 'die'));
-	} else if (ov.is(cmd.cmd, 'try')) {
-		return print_try_ensure(ov.as(cmd.cmd, 'try'), 'try');
-	} else if (ov.is(cmd.cmd, 'ensure')) {
-		return print_try_ensure(ov.as(cmd.cmd, 'ensure'), 'ensure');
-	} else {
-		return new Error(cmd);
-	}
-}
+// function print_simple_statement(cmd) {
+// 	if (ov.is(cmd.cmd, 'value')) {
+// 		return print_sim_value(ov.as(cmd.cmd, 'value'));
+// 	} else if (ov.is(cmd.cmd, 'return')) {
+// 		return print_return(ov.as(cmd.cmd, 'return'));
+// 	} else if (ov.is(cmd.cmd, 'break')) {
+// 		return print_break();
+// 	} else if (ov.is(cmd.cmd, 'continue')) {
+// 		return print_continue();
+// 	} else if (ov.is(cmd.cmd, 'die')) {
+// 		return print_die(ov.as(cmd.cmd, 'die'));
+// 	} else if (ov.is(cmd.cmd, 'try')) {
+// 		return print_try_ensure(ov.as(cmd.cmd, 'try'), 'try');
+// 	} else if (ov.is(cmd.cmd, 'ensure')) {
+// 		return print_try_ensure(ov.as(cmd.cmd, 'ensure'), 'ensure');
+// 	} else {
+// 		die(cmd);
+// 	}
+// }
 
 function flush_sim_statement(state, st, ind) {
 	wprinter.print_t(state, st, ind);
@@ -558,7 +582,7 @@ function print_cmd(state, cmd, ind) {
 		print_loop(state, 'if', as_if.if, [], as_if.cond, ind);
 		for (const elseif of as_if.elsif) {
 			state_print(state, ' ');
-			print_loop(state, 'elsif', elseif.cmd, [], elseif.cond, ind);
+			print_loop(state, 'else if', elseif.cmd, [], elseif.cond, ind);
 		}
 		if (!ov.is(as_if.else.cmd, 'nop')) {
 			state_print(state, ' else');
@@ -578,7 +602,7 @@ function print_cmd(state, cmd, ind) {
 			start = print_var_decl(var_decl);
 		}
 		wprinter.print_t(state, wprinter.build_pretty_a([
-				wprinter.build_sim('for ('),
+				wprinter.build_sim('for('),
 				start,
 				wprinter.build_sim(';'),
 				wprinter.get_sep(),
@@ -606,29 +630,33 @@ function print_cmd(state, cmd, ind) {
 		state_print(state, ';');
 	} else if (ov.is(cmd.cmd, 'match')) {
 		const as_match = ov.as(cmd.cmd, 'match');
-		wprinter.print_t(state, wprinter.build_pretty_a([
-				wprinter.build_sim('match ('),
-				print_val(as_match.val),
-				wprinter.build_sim(')')
-			]), ind);
-		for (const case_el of as_match.branch_list) {
-			state_print(state, ' case ');
-			wprinter.print_t(state, print_variant_case_decl(case_el.variant), ind + 1);
-			print_st(state, case_el.cmd, ind);
-		}
+		const { var_decl, new_if } = convert_match_to_if(as_match);
+		// print_cmd(state, var_decl, ind);
+		flush_sim_statement(state, print_var_decl(ov.as(var_decl.cmd, 'var_decl')), ind);
+		state_print(state, '\n' + pind(ind));
+		print_cmd(state, new_if, ind);
 	} else if (ov.is(cmd.cmd, 'fora')) {
 		const as_fora = ov.as(cmd.cmd, 'fora');
-		print_loop_or_mod(state, as_fora.short, 'fora', as_fora.cmd, [as_fora.iter], as_fora.array, ind);
+		// print_loop_or_mod(state, as_fora.short, 'fora', as_fora.cmd, [as_fora.iter], as_fora.array, ind);
+		const arr = print_val_no_context(as_fora.array);
+		state_print(state, `for (const ${as_fora.iter.name} of ${arr})`);
+		print_st(state, as_fora.cmd, ind);
 	} else if (ov.is(cmd.cmd, 'forh')) {
 		const as_forh = ov.as(cmd.cmd, 'forh');
-		print_loop_or_mod(state, as_forh.short, 'forh', as_forh.cmd, [as_forh.key, as_forh.val], as_forh.hash, 
-			ind);
+		// print_loop_or_mod(state, as_forh.short, 'forh', as_forh.cmd, [as_forh.key, as_forh.val], as_forh.hash, ind);
+		const hash = print_val_no_context(as_forh.hash);
+		state_print(state, `for (const [${as_forh.key.name}, ${as_forh.val.name}] of Object.entries(${hash}))`);
+		print_st(state, as_forh.cmd, ind);
 	} else if (ov.is(cmd.cmd, 'rep')) {
 		const as_rep = ov.as(cmd.cmd, 'rep');
-		print_loop_or_mod(state, as_rep.short, 'rep', as_rep.cmd, [as_rep.iter], as_rep.count, ind);
+		// print_loop_or_mod(state, as_rep.short, 'rep', as_rep.cmd, [as_rep.iter], as_rep.count, ind);
+		const i = as_rep.iter.name;
+		const length = print_val_no_context(as_rep.count);
+		state_print(state, `for (let ${i} = 0; ${i} < ${length}; ${i}++)`);
+		print_st(state, as_rep.cmd, ind);
 	} else if (ov.is(cmd.cmd, 'loop')) {
 		const as_loop = ov.as(cmd.cmd, 'loop');
-		state_print(state, 'loop');
+		state_print(state, 'while (true)');
 		print_st(state, as_loop, ind);
 	} else if (ov.is(cmd.cmd, 'if_mod')) {
 		const if_mod = ov.as(cmd.cmd, 'if_mod');
@@ -636,7 +664,7 @@ function print_cmd(state, cmd, ind) {
 			const block = { debug: cmd.debug, cmd: { block: { cmds: [if_mod.cmd], ending_comment: [] } } };
 			print_loop(state, 'if', block, [], if_mod.cond, ind);
 		} else {
-			print_cond_mod(state, 'if', if_mod.cmd, [], if_mod.cond, ind);
+			// print_cond_mod(state, 'if', if_mod.cmd, [], if_mod.cond, ind);
 		}
 	} else if (ov.is(cmd.cmd, 'unless_mod')) {
 		const unless_mod = ov.as(cmd.cmd, 'unless_mod');
@@ -662,17 +690,15 @@ function print_cmd(state, cmd, ind) {
 			const block = { debug: cmd.debug, cmd: { block: { cmds: [unless_mod.cmd], ending_comment: [] } } };
 			print_loop(state, 'if', block, [], final_cond, ind);
 		} else {
-			print_cond_mod(state, 'unless', unless_mod.cmd, [], unless_mod.cond, ind);
+			// print_cond_mod(state, 'unless', unless_mod.cmd, [], unless_mod.cond, ind);
 		}
 	} else if (ov.is(cmd.cmd, 'value')) {
 		const value = ov.as(cmd.cmd, 'value');
 		flush_sim_statement(state, print_sim_value(value), ind);
 	} else if (ov.is(cmd.cmd, 'try')) {
-		const astry = ov.as(cmd.cmd, 'try');
-		flush_sim_statement(state, print_try_ensure(astry, 'try'), ind);
+		print_try_ensure(state, ov.as(cmd.cmd, 'try'), 'try', ind);
 	} else if (ov.is(cmd.cmd, 'ensure')) {
-		const asensure = ov.as(cmd.cmd, 'ensure');
-		flush_sim_statement(state, print_try_ensure(asensure, 'ensure'), ind);
+		print_try_ensure(state, ov.as(cmd.cmd, 'ensure'), 'ensure', ind);
 	} else if (ov.is(cmd.cmd, 'return')) {
 		const as_return = ov.as(cmd.cmd, 'return');
 		flush_sim_statement(state, print_return(as_return), ind);
@@ -689,11 +715,87 @@ function print_cmd(state, cmd, ind) {
 	}
 }
 
-function print_comment(state, comments ,
-		ind_comment, ind_after) {
+function print_val_no_context(val) {
+	const state = { out: '' };
+	wprinter.print_t(state, wprinter.build_pretty_l([print_val(val)]), 0);
+	return state.out;
+}
+
+function value_only_to_string(val) {
+	return print_val_no_context(val).replace(/\(|\[|\{|\)|\]|\}|\.|::| |,'/g, '_').replace(/__+/g, '_').replace(/_$/g, '');
+}
+
+function create_var_decl(name, value, type, tct_type = ov.mk('tct_im')) {
+	return cmd_({ var_decl: {
+		name: name,
+		type: type,
+		tct_type: tct_type,
+		value: value,
+		place: { line: 16, position: 7 },
+		mod: { none: null },
+	}});
+}
+
+const cmd_ = (cmd) => ({ debug: emptyDebug, cmd });
+// const v_ = (cmd) => ({ debug: emptyDebug, cmd });
+const vt_ = (value) => ({ debug: emptyDebug, value, type: { tct_im: null } });
+
+function create_ov_as(left_var, right_as) {
+	return { value: vt_({ bin_op: { left: vt_({ var: left_var }), op: "OV_AS", right: vt_({ hash_key: right_as }) }})};
+}
+
+function get_var_from_case(variant_decl, match_var) {
+	return create_var_decl(
+		variant_decl.value.value.declaration.name,
+		create_ov_as(match_var, variant_decl.name),
+		{ none: null }
+	);
+}
+
+const emptyDebug = { begin: { line: 0, position: 0 }, end: { line: 0, position: 0 }, comment: [] }
+
+function create_is_cond(left_val, right_val) {
+	return vt_({ bin_op: { left: vt_(left_val), op: 'OV_IS', right: vt_(right_val), }});
+}
+
+const used_match_names = {};
+function get_var_name(val, prefix = 'match') {
+	let value = value_only_to_string(val);
+	if (value in used_match_names) {
+		value = `${value}_${used_match_names[value]++}`;
+	} else used_match_names[value] = 0;
+	return `${prefix}_${value}`;
+}
+
+function convert_match_to_if(match) {
+	const var_decl = create_var_decl(get_var_name(match.val), { value: match.val }, match.val.type);
+	const ret = cmd_({ if: {
+		cond: create_is_cond({ var: var_decl.cmd.var_decl.name }, { hash_key: match.branch_list[0].variant.name }),
+		if: match.branch_list[0].cmd,
+		elsif: match.branch_list.filter((_, i) => i > 0).map(v => {
+			if (ov.is(v.variant.value, 'value') && v.cmd.cmd.block.cmds.length > 0) {
+				v.cmd.cmd.block.cmds.unshift(get_var_from_case(v.variant, var_decl.cmd.var_decl.name));
+			}
+			return {
+				cond: create_is_cond({ var: var_decl.cmd.var_decl.name }, { hash_key: v.variant.name }),
+				cmd: v.cmd,
+				debug: emptyDebug,
+			};
+		}),
+		else: cmd_({ nop: null }),
+	}});
+
+	if (ov.is(match.branch_list[0].variant.value, 'value') && ret.cmd.if.if.cmd.block.cmds.length > 0) {
+		ret.cmd.if.if.cmd.block.cmds.unshift(get_var_from_case(match.branch_list[0].variant, var_decl.cmd.var_decl.name));
+	}
+
+	return { var_decl, new_if: ret };
+}
+
+function print_comment(state, comments, ind_comment, ind_after) {
 	if (comments.length > 0) {
 		for (let i = 0; i < comments.length; i++) {
-			state_print(state, comments[i]);
+			state_print(state, `// ${comments[i].slice(2)}`);
 			state_print(state, '\n');
 			if (i + 1 < comments.length) {
 				state_print(state, pind(ind_comment));
@@ -715,14 +817,7 @@ function is_proper_hash_key(string) {
 	return true;
 }
 
-function print_function(fun_def, moduleName, removeMod = false) {
-	const state = { out: '', removeMod };
-	print_fun_def(state, fun_def, moduleName);
-	return state.out;
-}
 
 module.exports = {
-	// print_module_to_struct,
-	print_function,
 	print_module_to_str,
 } 

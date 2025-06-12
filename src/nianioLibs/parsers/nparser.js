@@ -1,7 +1,7 @@
-const ov = require('./ov');
+const ov = require('../base/ov');
 const ntokenizer = require('./ntokenizer');
 const ptd_parser = require('./ptd_parser');
-const nast = require('./nast');
+const nast = require('../base/nast');
 
 const end_list = [';', 'if', 'unless', 'fora', 'forh', 'rep', 'while'];
 
@@ -9,21 +9,24 @@ function add_error(state, message, line = null, column = null, endLine = null, e
 	state.errors.push({
 		message: message,
 		type: ov.mk('error'),
-		line: line ?? ntokenizer.get_line(state.state),
-		column: column ?? ntokenizer.get_column(state.state),
-		endLine: endLine ?? line ?? ntokenizer.get_line(state.state),
-		endColumn: endColumn ?? ((column ?? ntokenizer.get_column(state.state)) + 1),
+		debug: {
+			begin: {
+				line: line ?? ntokenizer.get_line(state.state),
+				position: column ?? ntokenizer.get_column(state.state)
+			},
+			end: {
+				line: endLine ?? line ?? ntokenizer.get_line(state.state),
+				position: endColumn ?? ((column ?? ntokenizer.get_column(state.state)) + 1),
+			}
+		}
 	});
 }
 
-function add_warning(state, msg, line, column, endLine, endColumn) {
+function add_warning(state, msg, line, position, endLine, endColumn) {
 	state.warnings.push({
 		message: msg,
 		type: ov.mk('warning'),
-		line: line,
-		column: column,
-		endLine: endLine,
-		endColumn: endColumn,
+		debug: { begin: { line, position }, end: { line: endLine, position: endColumn } }
 	});
 }
 
@@ -37,7 +40,7 @@ function try_eat(state, token) {
 	return ntokenizer.eat_token(state.state, token);
 }
 
-function parse_module(state, addMethod) {
+function parse_module(state, addMethod = null) {
 	const mod = { module_name: state.module_name, imports: [], fun_def: [], stamp: '', ending_comment: [], importsMap: {} };
 	mod.stamp = ntokenizer.pop_last_comment(state.state).join('\n');
 	let place = ntokenizer.get_place(state.state);
@@ -69,7 +72,7 @@ function parse_module(state, addMethod) {
 		if (ov.is(try_fun_def, 'ok')) {
 			const fun_def = ov.as(try_fun_def, 'ok');
 			mod.fun_def.push(fun_def);
-			addMethod(fun_def);
+			if (addMethod !== null) addMethod(fun_def);
 		} else {
 			add_error(state, ov.as(try_fun_def, 'err'));
 			while (!ntokenizer.next_is(state.state, 'def') && !ntokenizer.is_type(state.state, ov.mk('end'))) {
@@ -241,7 +244,7 @@ function addModuleUsage(state, module, place) {
 function parse_label(state, begin) {
 	const word = ntokenizer.eat_type(state.state, ov.mk('word'));
 	if (!ntokenizer.next_is(state.state, '(') && !ntokenizer.next_is(state.state, '::')) return ov.mk('ok', ov.mk('var', word));
-	const fun_val = { module: '', name: '', args: [] };
+	const fun_val = { module: '', name: '', args: [], debug: { begin, end: ntokenizer.get_place(state.state) } };
 	if (try_eat(state, '::')) {
 		fun_val.module = word;
 		const try_fun_val_name = eat_text(state);
@@ -253,6 +256,7 @@ function parse_label(state, begin) {
 		fun_val.name = word;
 		state.addReference(`${fun_val.name}`, begin);
 	}
+	fun_val.debug.end = ntokenizer.get_place(state.state);
 	eat(state, '(');
 	const try_fun_val_args = parse_fun_val_arg_list(state);
 	if (ov.is(try_fun_val_args, 'err')) return try_fun_val_args;
@@ -989,7 +993,7 @@ function parse_cmd(state) {
 	return ov.mk('ok', { cmd: ret, debug: debug });
 }
 
-function sparse(s, module_name, addMethod, addReference) {
+function sparse(s, module_name, addReference = null, addMethod = null) {
 	const state = {
 		errors: [],
 		warnings: [],
@@ -1008,7 +1012,7 @@ function sparse(s, module_name, addMethod, addReference) {
 		},
 		module_name: module_name,
 		parse_types: true,
-		addReference: addReference,
+		addReference: addReference ?? ((_, __) => {}),
 		varPositions: {},
 		importsMap: {}
 	};

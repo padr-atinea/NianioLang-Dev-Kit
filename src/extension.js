@@ -2,13 +2,24 @@ const vscode = require('vscode');
 const path = require('path');
 const moduleManager = require('./moduleManager');
 const diagnosticsManager = require('./diagnosticsManager');
-const ov = require('./nianioLibs/ov');
+const ov = require('./nianioLibs/base/ov');
 const ptdPrinter = require('./ptd-printer');
-const tct = require('./nianioLibs/tct');
+const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 
 let isDebug = false;
+
+const getCurrentDateTime = () => {
+	const now = new Date();
+	const year = now.getFullYear();
+	const month = String(now.getMonth() + 1).padStart(2, '0');
+	const day = String(now.getDate()).padStart(2, '0');
+	const hours = String(now.getHours()).padStart(2, '0');
+	const minutes = String(now.getMinutes()).padStart(2, '0');
+	const seconds = String(now.getSeconds()).padStart(2, '0');
+	return `[${year}-${month}-${day} ${hours}:${minutes}:${seconds}]`;
+};
 
 function getMethod(fullName, filePath) {
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
@@ -144,7 +155,7 @@ async function provideCompletionItems(document, position) {
 			)
 			.map((token) => {
 				const item = new vscode.CompletionItem(token.def.name, vscode.CompletionItemKind.Field);
-				item.detail = `type: ${tct.get_type_constructor(token.def.var_dec.tct_type)}`;
+				item.detail = `type: ${own_to_im_converter.get_type_constructor(token.def.var_dec.tct_type)}`;
 				item.insertText = new vscode.SnippetString(token.def.name);
 				// if (pos.nlType === null) return item;
 				// const body = parseNlType(pos.nlType);
@@ -383,7 +394,7 @@ function provideHover(document, position) {
 	if (token) {
 		const md = new vscode.MarkdownString();
 		if (ov.is(token, 'def') || ov.is(token, 'ref')) {
-			md.appendCodeblock(`type: ${tct.get_type_constructor(ov.get_value(token).var_dec.tct_type)}`, 'nianiolang');
+			md.appendCodeblock(`type: ${own_to_im_converter.get_type_constructor(ov.get_value(token).var_dec.tct_type)}`, 'nianiolang');
 		}
 		if (isDebug) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
 		return new vscode.Hover(md, range);
@@ -588,11 +599,13 @@ async function loadAllModules() {
 		}
 	});
 
-	console.log('loadAllModules complited');
+	console.log(getCurrentDateTime(), 'loadAllModules complited');
 }
 
 async function activate(context) {
 	isDebug = context.extensionMode === vscode.ExtensionMode.Development;
+	console.log(getCurrentDateTime(), 'NianioLang Dev Kit starting');
+
 	const codeLensProvider = new ReferenceCounterCodeLensProvider();
 	const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: starting`);
 	await loadAllModules();
@@ -631,8 +644,8 @@ async function activate(context) {
 		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
 	);
 
-	if (vscode.window.activeTextEditor) diagnosticsManager.updateAllOpenTabs();
-	console.log('NianioLang Dev Kit activated');
+	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
+	console.log(getCurrentDateTime(), 'NianioLang Dev Kit activated');
 	statusMessage.dispose();
 	vscode.window.showInformationMessage('NianioLang Dev Kit: Ready to use');
 }
@@ -651,7 +664,7 @@ async function updateAllDiagnostics() {
 			progress.report({ increment: i / files.length * 0.6, message: `${i} / ${files.length} (${Math.round(10000 * i / files.length) / 100}%)` });
 		}
 	});
-	console.log('Diagnostics updated for all .nl files');
+	console.log(getCurrentDateTime(), 'Diagnostics updated for all .nl files');
 	vscode.window.showInformationMessage('Diagnostics updated for all .nl files');
 }
 
@@ -672,7 +685,7 @@ async function onDidSaveTextDocument(document) {
 	const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
 	if (onSavePrettyPrint === 'Current module') await prettyPrintModule(document);
 	else if (onSavePrettyPrint === 'Current method') await prettyPrintMethod(document);
-	diagnosticsManager.updateAllOpenTabs(document);
+	await diagnosticsManager.updateAllOpenTabs(document);
 	document.save();
 }
 
@@ -750,6 +763,7 @@ async function refactorToJS(doc) {
 	const newWoc = await vscode.workspace.openTextDocument({content, language: 'javascript'});
 	await vscode.window.showTextDocument(newWoc);
 }
+
 
 function deactivate() { }
 

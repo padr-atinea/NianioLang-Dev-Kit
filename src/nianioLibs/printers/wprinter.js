@@ -1,4 +1,4 @@
-const ov = require('./ov');
+const ov = require('../base/ov');
 
 function get_tab_size() {
 	return 4;

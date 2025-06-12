@@ -3,12 +3,17 @@ const fs = require('fs');
 const path = require('path');
 const ignore = require('ignore');
 
-const ov = require('./nianioLibs/ov');
-const nparser = require('./nianioLibs/nparser');
-const module_checker = require('./nianioLibs/module_checker');
-const pretty_printer = require('./nianioLibs/pretty_printer');
-const js_printer = require('./nianioLibs/js_printer');
+const ov = require('./nianioLibs/base/ov');
+const nparser = require('./nianioLibs/parsers/nparser');
+const module_checker = require('./nianioLibs/parsers/module_checker');
+const pretty_printer = require('./nianioLibs/printers/pretty_printer');
+const js_printer = require('./nianioLibs/printers/js_printer');
+const type_checker = require('./nianioLibs/type_checker/type_checker');
 
+const knownTypes = {};
+const knownTypesInModule = {};
+
+const libModules = {};
 const moduleCache = {};
 const referenceCache = {};
 const referenceBackCache = {};
@@ -40,25 +45,8 @@ function updateModule(document, checkIgnore = false) {
 	const text = document.getText();
 	if (checkIgnore && checkFileIgnore(filePath)) return;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
-	const usedModules = {};
-	const positions = {};
-	let lastUseStatementPos = 0;
-	const staticDiagnostics = [];
-	let pos = 0;
-	let lineNumber = 1;
-	const closeBracketsToOpen = { ')': '(', '}': '{', ']': '[' };
+	const methods = {};
 
-	const getPathLine = () => `${filePath}:${lineNumber} ${pos} '${text[pos]}'`;
-
-	const getDiag = (startPos, endPos, message, messageCode = 'badSyntax', severity = vscode.DiagnosticSeverity.Error, tags = []) => {
-		const diag = new vscode.Diagnostic(new vscode.Range(document.positionAt(startPos), document.positionAt(endPos)), message, severity);
-		diag.code = messageCode;
-		diag.tags = tags;
-		return diag;
-	}
-
-	const pushDiag = (startPos, endPos, message, messageCode = 'badSyntax', severity = vscode.DiagnosticSeverity.Error, tags = []) => 
-		true || staticDiagnostics.push(getDiag(startPos, endPos, message, messageCode, severity, tags));
 
 	if (Object.keys(referenceBackCache).includes(filePath)) {
 		for (const method of Object.keys(referenceBackCache[filePath])) {
@@ -69,42 +57,18 @@ function updateModule(document, checkIgnore = false) {
 	}
 	referenceBackCache[filePath] = {};
 
-	const getWord = (startPos, errMsg = 'Expected a word') => {
-		if (!/[a-zA-Z0-9_]/.test(text[pos])) pushDiag(startPos, pos, errMsg);
-		while (pos < text.length && /[a-zA-Z0-9_]/.test(text[pos])) pos++;
-		return text.slice(startPos, pos);
-	}
+	(knownTypesInModule[thisModuleName] ?? []).forEach(name => delete knownTypes[name]);
+	knownTypesInModule[thisModuleName] = [];
 
-	const chechKeywordVar = (errMsg = 'Expected keyword var') => {
-		skipWhiteChars();
-		const word = getWord(pos, errMsg);
-		if (word == 'var') return true;
-		pushDiag(pos - word.length, pos, errMsg);
-		return false;
-	}
-
-	const nextRealCharPos = (currentPos) => {
-		let newPos = currentPos;
-		if (newPos >= text.length) return null;
-		let isCommant = false;
-		while (/\s|#/.test(text[newPos]) || isCommant) {
-			if (text[newPos] === '#') isCommant = true;
-			if (text[newPos] === '\n') isCommant = false;
-			newPos++;
-			if (newPos >= text.length) return null;
-		}
-		return newPos;
-	}
-
-	const skipWhiteChars = () => {
-		let isCommant = false;
-		while (/\s|#/.test(text[pos]) || isCommant) {
-			if (text[pos] === '#') isCommant = true;
-			if (text[pos] === '\n') {
-				isCommant = false;
-				lineNumber++;
-			}
-			pos++;
+	const addMethod = (fun) => {
+		fun.endLine = fun.cmd.debug.end.line;
+		fun.rawRange = new vscode.Range(fun.line - 1, 0, fun.endLine - 1, 1);
+		fun.rawMethod = [...fun.comment, document.getText(fun.rawRange)].join('\n');
+		const name = `${ov.is(fun.access, 'pub') ? `${thisModuleName}::` : ``}${fun.name}`;
+		methods[name] = fun;
+		if (ov.is(fun.defines_type, 'yes') && ov.is(fun.access, 'pub')) {
+			knownTypes[name] = ov.as(fun.defines_type, 'yes');
+			knownTypesInModule[thisModuleName].push(name);
 		}
 	}
 
@@ -117,557 +81,12 @@ function updateModule(document, checkIgnore = false) {
 		referenceBackCache[filePath][methodName].push(startPos);
 	}
 
-	const referenceUtils = {
-		tryAdd: (startPos) => {
-			let methodName;
-			if (startPos === undefined) {
-				startPos = pos;
-				methodName = getWord(startPos, 'Expected function or module name');
-			} else {
-				if (!/[a-zA-Z0-9_]/.test(text[startPos])) return false;
-				methodName = text.slice(startPos, pos);
-			}
-			skipWhiteChars();
-			if (text[pos] == ':' && text[pos + 1] == ':') {
-				pos++; pos++;
-				skipWhiteChars();
-				if (!/[a-zA-Z0-9_]/.test(text[pos])) return true;
-				methodName = `${methodName}::${getWord(pos, 'Expected function name')}`;
-			}
-			if (text[startPos - 1] !== '@') {
-				skipWhiteChars();
-				if (text[pos] != '(') return true;
-			}
-			
-			if (!(Object.keys(referenceCache).includes(methodName))) referenceCache[methodName] = {};
-			if (!(Object.keys(referenceCache[methodName]).includes(filePath))) referenceCache[methodName][filePath] = [];
-			referenceCache[methodName][filePath].push(startPos);
+	libModules[thisModuleName] = nparser.sparse(text, thisModuleName, addReference, addMethod);
+	const errors = module_checker.check_module(libModules[thisModuleName], true, {});
 
-			const parts = methodName.split('::');
-			if (parts.length == 2) {
-				const moduleName = parts[0];
-				if (Object.keys(usedModules).includes(moduleName)) {
-					usedModules[moduleName].count++;
-				} else if (moduleName != thisModuleName) {
-					pushDiag(startPos, startPos + moduleName.length,
-						`Module '${moduleName}' usage on top of file is missing`,
-						'missingImport',
-					);
-				}
-			}
-			if (!(Object.keys(referenceBackCache[filePath]).includes(methodName))) referenceBackCache[filePath][methodName] = [];
-			referenceBackCache[filePath][methodName].push(startPos);
-
-			return true;
-		}
-	}
-
-	const getParamiters = () => {
-		pos++;
-		let depth = ['('];
-		const parameters = [];
-		let currentParam = { fieldName: null, startPos: null, type: null, startPosOfRef: null };
-		let startOfType = null;
-		whileRun(c => {
-			if (/\(|\{|\[/.test(c)) { depth.push(c); pos++; }
-			else if (/\)|\}|\]/.test(c)) {
-				if (closeBracketsToOpen[c] !== depth.pop()) {
-					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
-					return false;
-				}
-				if (depth.length === 0) {
-					if (currentParam.fieldName !== null) {
-						if (startOfType !== null) currentParam.type = text.slice(startOfType, pos);
-						parameters.push(currentParam);
-					}
-					pos++;
-					return true;
-				}
-				pos++;
-			} else if (depth.length === 1) {
-				if (c === ',') {
-					if (currentParam.fieldName === null) {
-						pushDiag(pos, pos, `Bad syntax - expected paramiter name`);
-						pos++;
-						return;
-					}
-					if (startOfType !== null) currentParam.type = text.slice(startOfType, pos);
-					parameters.push(currentParam);
-					currentParam = { fieldName: null, startPos: null, type: null, startPosOfRef: null };
-					startOfType = null;
-					pos++;
-				} else if (c === ':') {
-					if (currentParam.fieldName === null) {
-						pushDiag(pos, pos, `Bad syntax - expected param name`);
-						return;
-					}
-					pos++;
-					skipWhiteChars();
-					startOfType ??= pos;
-				} else if (/[a-zA-Z0-9_]/.test(c)) {
-					if (currentParam.startPos === null) {
-						const startPos = pos;
-						const word = getWord(pos);
-						skipWhiteChars();
-						if (/:/.test(text[pos])) {
-							currentParam.startPos = startPos;
-							currentParam.fieldName = word;
-						} else if (/\)|,/.test(text[pos])) {
-							currentParam.startPos = startPos;
-							currentParam.fieldName = word;
-						} else if (currentParam.startPosOfRef === null && word == 'ref' && /[a-zA-Z0-9_]/.test(text[pos])) {
-							currentParam.startPosOfRef = startPos;
-						} else {
-							pushDiag(pos, pos, `Bad syntax`);
-							pos++;
-						}
-					} else if (!referenceUtils.tryAdd()) {
-						pushDiag(pos, pos, `Bad syntax`);
-						pos++;
-					}
-				} else pos++;
-			} else if (/[a-zA-Z0-9_]/.test(c) && referenceUtils.tryAdd()) return;
-			else pos++;
-		});
-		return parameters;
-	}
-
-	const getReturnType = () => {
-		if (pos >= text.length || text[pos] != ':') return '';
-		pos++;
-		if (pos >= text.length || !/\s/.test(text[pos])) return '';
-		skipWhiteChars();
-		if (!/[@a-zA-Z0-9_]/.test(text[pos])) return '';
-		const depth = [];
-		const startingTypeOffset = pos;
-		whileRun(c => {
-			if (/\(|\{|\[/.test(c)) {
-				if (depth.length == 0 && c == '{') return true;
-				depth.push(c);
-			}
-			else if (/\)|\}|\]/.test(c)) {
-				if (closeBracketsToOpen[c] !== depth.pop()) {
-					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
-					return false;
-				}
-			}
-			else if (/[a-zA-Z0-9_]/.test(c) && referenceUtils.tryAdd()) return;
-			pos++;
-		});
-		return text.slice(startingTypeOffset, pos);
-	}
-
-	const getBody = (parameters) => {
-		if (pos >= text.length || text[pos] != '{') {
-			pushDiag(pos, pos, `Bad syntax - no body`);
-			return '!!! bad syntax - no body !!!';
-		}
-		const depth = ['{'];
-		const startingBodyOffset = pos;
-		const localEnv = getLocalEnv(parameters);
-		pos++;
-
-		whileRun(c => {
-			const startWordPos = pos;
-			if (/\(|\{|\[/.test(c)) {
-				if (c == '{') localEnv.tryAddScope(depth.length);
-				depth.push(c);
-				pos++;
-			} else if (/\)|\}|\]/.test(c)) {
-				if (closeBracketsToOpen[c] !== depth.pop()) {
-					pushDiag(pos, pos + 1, `Bad syntax - expected ${closeBracketsToOpen[c]}`);
-					return false;
-				}
-				pos++;
-				if (c == '}') {
-					localEnv.tryCloseScope(depth.length);
-					if (depth.length == 0) return true;
-				}
-			} else if (/[a-zA-Z0-9_]/.test(c)) {
-				const word = getWord(startWordPos);
-				const nextRealPos = nextRealCharPos(pos);
-				if (nextRealPos === null) return;
-				const nextRealChar = text[nextRealPos];
-				if (nextRealPos + 1 < text.length && `${nextRealChar}${text[nextRealPos + 1]}` == '=>') {
-					skipWhiteChars(); pos++; pos++;
-				} else if (/^(var)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
-					localEnv.tryAddNewDef({ expectedDepth: null, addToScopeBuffer: false, addToScopeAfterRelease: true });
-				} else if (/^(fora|rep)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
-					if (!chechKeywordVar()) return;
-					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScopeBuffer: true, addToScopeAfterRelease: true });
-					skipWhiteChars();
-					if (text[pos] != '(') pushDiag(pos, pos + 1, `Bad formated ${word} - expected (`);
-				} else if (/^for$/.test(word) && /\(/.test(nextRealChar)) {
-					skipWhiteChars();
-					if (text[pos] != '(') { pushDiag(pos, pos + 1, `Bad formated ${word}`); return; }
-					pos++; depth.push('('); // skip (
-					skipWhiteChars();
-					if (text[pos] !== 'v' || getWord(pos) !== 'var') return; // no var
-					const nextRealPos = nextRealCharPos(pos);
-					if (nextRealPos === null || !/[a-zA-Z0-9_]/.test(text[nextRealPos])) return; // var is a variable
-					localEnv.scopes.push([]);
-					localEnv.tryAddNewDef({ expectedDepth: depth.length - 1, addToScopeBuffer: false, addToScopeAfterRelease: false });
-				} else if (/^forh$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) {
-					if (!chechKeywordVar()) return;
-					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScopeBuffer: true, addToScopeAfterRelease: true });
-					skipWhiteChars();
-					if (text[pos] != ',') { pushDiag(pos, pos, `Bad syntax - expected ,`); return; }
-					pos++; // skip ,
-					if (!chechKeywordVar()) return;
-					localEnv.tryAddNewDef({ expectedDepth: depth.length, addToScopeBuffer: true, addToScopeAfterRelease: true });
-				} else if (/^(case)$/.test(word) && /:/.test(nextRealChar)) {
-					skipWhiteChars(); pos++; skipWhiteChars();
-					getWord(pos, 'Expected variant name'); skipWhiteChars();
-					if (text[pos] == '{') return; // no internal value
-					if (text[pos] != '(') { pushDiag(pos, pos + 1, `Bad formated variant`); return; }
-					depth.push('('); pos++; // skip (
-					if (!chechKeywordVar()) return;
-					localEnv.tryAddNewDef({ expectedDepth: depth.length - 1, addToScopeBuffer: true, addToScopeAfterRelease: true });
-					skipWhiteChars();
-					if (text[pos] != ')') { pushDiag(startVariablePos, pos, `Bad formated variant`); return; }
-					depth.pop(); pos++; // skip )
-				} else if (/^\d+$/.test(word)) return;
-				else if (/^(as|is|unless|if)$/.test(word) && /:/.test(nextRealChar)) return;
-				else if (/^(else|loop)$/.test(word) && /\{/.test(nextRealChar)) return;
-				else if (/^(true|false)$/.test(word)) return;
-				else if (/^(def)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) return true;
-				else if (/^(eq|ne|return)$/.test(word) && /\s/.test(text[pos])) return;
-				else if (/^(for|match|die|if|unless|elsif|while)$/.test(word) && /\(/.test(nextRealChar)) return;
-				else if (/^(die|break|continue|return)$/.test(word) && /;/.test(nextRealChar)) return;
-				else if (/^(die|break|continue|return|while|unless|if|ensure|try|ref)$/.test(word) && /[a-zA-Z0-9_]/.test(nextRealChar)) return;
-				else if (/^(unless|if)$/.test(word) && /!|\+|'/.test(nextRealChar)) return;
-				else if ((nextRealPos + 1 < text.length && /::/.test(`${nextRealChar}${text[nextRealPos + 1]}`)) || /\(/.test(nextRealChar)) referenceUtils.tryAdd(startWordPos);
-				else localEnv.tryAddRef(word, startWordPos, depth.length);
-			} else if (c == ':' && /[a-zA-Z0-9_]/.test(text[pos + 1])) {
-				pos++; skipWhiteChars();
-				const startPos = pos;
-				const startLine = lineNumber;
-				if (!/[a-zA-Z0-9_]/.test(text[pos])) return;
-				while (pos < text.length && /[a-zA-Z0-9_]/.test(text[pos])) pos++;
-				const word = text.slice(startPos, pos);
-				skipWhiteChars();
-				if (text[pos] == ':' && text[pos+1] == ':') {
-					pos = startPos;
-					lineNumber = startLine;
-				}
-			} else if (c == '-' && pos + 1 < text.length && text[pos + 1] == '>') {
-				pos++; pos++; skipWhiteChars(); getWord(pos, 'Expected property name');
-			} else if (c == '@') {
-				pos++; referenceUtils.tryAdd();
-			} else if (c == ';') {
-				localEnv.tryReleaseScopeBuffer(depth.length); pos++;
-			} else pos++;
-		});
-		return text.slice(startingBodyOffset, pos);
-	}
-
-	const whileRun = (run) => {
-		let isString = false;
-		let isCommant = false;
-		while (pos < text.length) {
-			const c = text[pos];
-			if (c === '\n') { isString = false; isCommant = false; pos++; lineNumber++; continue; }
-			if (isCommant) { pos++; continue; }
-			if (c === "'") isString = !isString;
-			if (isString) { pos++; continue; }
-			if (c === "#") { isCommant = true; pos++; continue; }
-			if (/\s/.test(c)) { pos++; continue; }
-
-			const ret = run(c);
-			if (ret !== undefined) return ret;
-		}
-	}
-
-	const getLocalEnv = (parameters) => {
-		function tryReadNlType() {
-			skipWhiteChars();
-			if (text[pos] !== ':' || text[pos + 1] === ':') return null;
-			pos++;
-			skipWhiteChars();
-			const startTypePos = pos;
-			if (text[pos] === '@') pos++;
-			if (referenceUtils.tryAdd()) return text.slice(startTypePos, pos);
-			return null;
-		}
-		
-		const localEnv = {
-			fieldsPos: {},
-			scopes: [[]],
-			scopeBuffer: {},
-			waitingErrors: {},
-			waitingForNewScope: [],
-			pushWaitingErrors(message, code, fieldName, startPos) {
-				this.waitingErrors[fieldName].push(getDiag(startPos, pos, message, code, vscode.DiagnosticSeverity.Error, [startPos]));
-			},
-			tryAddNewDef({ expectedDepth, addToScopeBuffer, addToScopeAfterRelease }) {
-				skipWhiteChars();
-				const startPos = pos;
-				const fieldName = getWord(startPos, 'Expected field name');
-				if (Object.keys(this.scopeBuffer).includes(fieldName) || Object.keys(this.fieldsPos).includes(fieldName)) {
-					if (!(Object.keys(this.waitingErrors).includes(fieldName))) this.waitingErrors[fieldName] = [];
-					this.pushWaitingErrors(`Redeclaration of variable ${this.scopeBuffer[fieldName]?.startPos ?? this.fieldsPos[fieldName]}`, 'redeclarationOfVariable', fieldName, startPos);
-					return;
-				}
-				const nlType = tryReadNlType();
-				if (addToScopeBuffer) this.scopeBuffer[fieldName] = { startPos, nlType };
-				else this.addNewDef(fieldName, startPos, nlType);
-				if (expectedDepth === null) return;
-				if (this.waitingForNewScope.length > 0 && this.waitingForNewScope.at(-1).depth == expectedDepth) return;
-				this.waitingForNewScope.push({ depth: expectedDepth, addToScopeAfterRelease });
-			},
-			addNewDefToPosition(fieldName, fieldPos, nlType) {
-				if (!(Object.keys(positions).includes(fieldPos))) {
-					positions[fieldPos] = { type: 'fieldDef', name: fieldName, startPos: fieldPos, usage: [], nlType: nlType };
-					if (showDebugHoverInfo) {
-						positions[fieldPos].scope = JSON.parse(JSON.stringify(this.scopes));
-					}
-				}
-				if (showDebugInfo) {
-					pushDiag(
-						fieldPos, fieldPos + fieldName.length,
-						'Root ' + fieldPos,
-						'test', vscode.DiagnosticSeverity.Warning
-					);
-				}
-			},
-			addNewDef(fieldName, fieldPos, nlType) {
-				this.fieldsPos[fieldName] = fieldPos;
-				this.addNewDefToPosition(fieldName, fieldPos, nlType);
-				this.scopes.at(-1).push(fieldName);
-			},
-			tryAddRef(fieldName, startPos, depth) {
-				if (Object.keys(this.fieldsPos).includes(fieldName)) this.addRef(fieldName, startPos, this.fieldsPos[fieldName], depth);
-				else {
-					if (!(Object.keys(this.waitingErrors).includes(fieldName))) this.waitingErrors[fieldName] = [];
-					this.pushWaitingErrors(`Variable not declared${showDebugInfo ? ` at depth ${depth}, depth scope ${this.scopes.length}` : ''}`, 'variableNotDeclared', fieldName, startPos);
-				}
-			},
-			addRef(fieldName, startPos, defPos, depth) {
-				positions[startPos] = { type: 'fieldRef', name: fieldName, startPos, def: positions[defPos] };
-				positions[defPos].usage.push(startPos);
-				if (showDebugHoverInfo) {
-					positions[startPos].scope = JSON.parse(JSON.stringify(this.scopes));
-					positions[startPos].depth = depth;
-				}
-				if (showDebugInfo) {
-					pushDiag(startPos, startPos, startPos + fieldName.length, 'test', vscode.DiagnosticSeverity.Information);
-				}
-			},
-			tryAddScope(depth) {
-				if (this.waitingForNewScope.length == 0) { this.scopes.push([]); return; } 
-				if (this.waitingForNewScope.at(-1).depth != depth) return;
-				if (!this.waitingForNewScope.pop().addToScopeAfterRelease) return;
-				this.scopes.push([]);
-				for (const [fieldName, field] of Object.entries(this.scopeBuffer)) this.addNewDef(fieldName, field.startPos, field.nlType);
-				this.scopeBuffer = {};
-			},
-			tryReleaseScopeBuffer(depth) {
-				if (this.waitingForNewScope.length > 0 
-					&& this.waitingForNewScope.at(-1).depth === depth 
-					&& this.waitingForNewScope.pop().addToScopeAfterRelease) {
-					for (const [fieldName, field] of Object.entries(this.scopeBuffer)) {
-						this.addNewDefToPosition(fieldName, field.startPos, field.nlType);
-						if (Object.keys(this.waitingErrors).includes(fieldName)) {
-							for (const diag of this.waitingErrors[fieldName]) {
-								this.addRef(fieldName, diag.tags[0], field.startPos, depth);
-							}
-							delete this.waitingErrors[fieldName];
-						}
-						delete this.scopeBuffer[fieldName];
-					}
-				}
-				staticDiagnostics.push(...Object.values(this.waitingErrors).flat());
-				this.waitingErrors = {};
-			},
-			tryCloseScope(depth) {
-				if (this.waitingForNewScope.length != 0 && this.waitingForNewScope.at(-1) != depth) return;
-				if (depth !== 0 && this.scopes.length == 1) {
-					pushDiag(pos - 1, pos, 'Bad scope');
-					return;
-				}
-				for (const field of this.scopes.pop()) {
-					if (this.fieldsPos[field] in positions) positions[this.fieldsPos[field]].endOfScope = pos;
-					delete this.fieldsPos[field];
-				}
-			},
-		};
-		for (const { fieldName, startPos, type } of parameters) localEnv.addNewDef(fieldName, startPos, type);
-		return localEnv;
-	}
-
-	const getMethod = (startingOffset) => {
-		skipWhiteChars();
-		const startPos = pos;
-		let methodName = getWord(startPos, 'Expected method or module name');
-		let moduleName = thisModuleName;
-		let isPrivate = true;
-		skipWhiteChars();
-		if (text[pos] == ':') {
-			isPrivate = false;
-			moduleName = methodName;
-			pos++;
-			if (pos >= text.length || text[pos] != ':') {
-				pushDiag(startPos, pos, 'Bad public method syntax - expected :');
-				return;
-			}
-			pos++; skipWhiteChars();
-			methodName = getWord(pos, 'Expected method name');
-			skipWhiteChars();
-		}
-		if (pos >= text.length || text[pos] != '(') {
-			pushDiag(startPos, pos, 'Bad public method syntax - expected (');
-			return;
-		}
-
-		positions[startPos] = { type: 'methodDef', name: isPrivate ? methodName : `${moduleName}::${methodName}` };
-
-		const parameters = getParamiters();
-
-		skipWhiteChars();
-		const returnType = getReturnType();
-
-		skipWhiteChars();
-		const body = getBody(parameters);
-
-		return { moduleName, methodName, parameters, startDefPos: startingOffset, startPos, endPos: pos, isPrivate, returnType, body };
-	}
-
-	// check for duplicated modules
-	if (Object.keys(moduleCache).includes(thisModuleName) && moduleCache[thisModuleName].filePath != filePath) {
-		if (!moduleCache[thisModuleName].staticDiagnostics.some((diag) => diag.code == 'duplicatedModule' && diag.tags.includes(filePath))) {
-			pushDiag(0, 0,
-				`Duplicated module - first detected is ${moduleCache[thisModuleName].filePath}`,
-				'duplicatedModule',
-				vscode.DiagnosticSeverity.Error,
-				[filePath],
-			);
-		}
-		return;
-	}
-
-	// toplevel search
-	// whileRun(c => {
-	// 	if (!/[a-zA-Z0-9_]/.test(c)) {
-	// 		if (!/\s/.test(c)) {
-	// 			pushDiag(pos, pos, 'Bad syntax - expected use or def');
-	// 			console.log('BAD module char', getPathLine());
-	// 		}
-	// 		pos++;
-	// 		return;
-	// 	}
-	// 	const startPos = pos;
-	// 	const word = getWord(startPos, 'Expected a word');
-
-	// 	if (word == 'use') {
-	// 		if (Object.keys(privateMethods).length > 0 || Object.keys(privateMethods).length > 0) {
-	// 			pushDiag(startPos, pos, 'Bad use statement - should occur before function definitions');
-	// 		}
-
-	// 		skipWhiteChars();
-	// 		if (!/[a-zA-Z0-9_]/.test(text[pos])) {
-	// 			pushDiag(startPos, pos, 'Bad use statement - missing module name');
-	// 			return;
-	// 		}
-	// 		const startModulePos = pos;
-	// 		pos++;
-	// 		const word = getWord(startModulePos, 'Expected module name');
-
-	// 		positions[startModulePos] = { type: 'useStatement', name: word };
-
-	// 		skipWhiteChars();
-
-	// 		if (text[pos] != ';') {
-	// 			pushDiag(startModulePos + word.length, pos, `Missing semicolon`);
-	// 		} else {
-	// 			pos++;
-	// 		}
-
-	// 		if (Object.keys(usedModules).includes(word)) {
-	// 			pushDiag(startPos, pos, `Module '${word}' usage is duplicated`, 'duplicatedImport', vscode.DiagnosticSeverity.Warning);
-	// 		} else {
-	// 			usedModules[word] = { count: 0, startPos: startPos, endPos: pos };
-	// 		}
-
-	// 		lastUseStatementPos = pos;
-	// 	} else if (word == 'def') {
-	// 		const methodDef = getMethod(startPos);
-	// 		if (!methodDef) {
-	// 			return;
-	// 		}
-	// 		if (methodDef.moduleName != thisModuleName) {
-	// 			pushDiag(methodDef.startPos, methodDef.startPos + methodDef.moduleName.length,
-	// 				`Module name '${methodDef.moduleName}' must equal file name '${thisModuleName}'`,
-	// 				'moduleNameNotEqualFileName',
-	// 			);
-	// 		} else if (methodDef.isPrivate) {
-	// 			if (Object.keys(privateMethods).includes(methodDef.methodName)) {
-	// 				pushDiag(methodDef.startPos, methodDef.startPos + methodDef.methodName.length,
-	// 					`Duplicated private method name '${methodDef.methodName}'`,
-	// 					'duplicatedMethodDef',
-	// 				);
-	// 			} else {
-	// 				privateMethods[methodDef.methodName] = methodDef;
-	// 			}
-	// 		} else {
-	// 			if (Object.keys(publicMethods).includes(methodDef.methodName)) {
-	// 				pushDiag(methodDef.startPos + thisModuleName.length + 2, methodDef.startPos + thisModuleName.length + 2 + methodDef.methodName.length,
-	// 					`Duplicated public method name '${methodDef.methodName}'`,
-	// 					'duplicatedMethodDef',
-	// 				);
-	// 			} else {
-	// 				publicMethods[methodDef.methodName] = methodDef;
-	// 			}
-	// 		}
-	// 	} else {
-	// 		pushDiag(startPos, pos, 'Bad syntax - expected use or def');
-	// 		console.log('BAD module cont', getPathLine(), word);
-	// 	}
-
-	// 	pos++;
-	// });
-
-	// chech if not used imports
-	// for (const [key, value] of Object.entries(usedModules)) {
-	// 	if (value.count == 0) {
-	// 		pushDiag(value.startPos, value.endPos, `Module '${key}' not used`, 'notUsedImport', vscode.DiagnosticSeverity.Warning);
-	// 	}
-	// }
-
-	staticDiagnostics.splice(0, staticDiagnostics.length);
-
-	const methods = {};
-
-	function addMethod(fun) {
-		fun.endLine = fun.cmd.debug.end.line;
-		fun.rawRange = new vscode.Range(fun.line - 1, 0, fun.endLine - 1, 1);
-		fun.rawMethod = [...fun.comment, document.getText(fun.rawRange)].join('\n');
-		const name = `${ov.is(fun.access, 'pub') ? `${thisModuleName}::` : ``}${fun.name}`;
-		methods[name] = fun;
-	}
-
-	const parsedModule = nparser.sparse(text, thisModuleName, addMethod, addReference);
-
-	[parsedModule.errors, parsedModule.warnings].flat().forEach(err => staticDiagnostics.push(parseError(err)));
-
-	// if (parsedModule.errors.length === 0) console.log('OK ', thisModuleName);
-
-	const errors = module_checker.check_module(parsedModule, true, {}, parsedModule.varPositions);
-	[errors.errors, errors.warnings].flat().forEach(err => staticDiagnostics.push(parseError(err)));
-
-	moduleCache[thisModuleName] = { filePath, methods, staticDiagnostics, lastUseStatementPos, usedModules, positions, parsedModule }
-}
-
-function parseError(err) {
-	return new vscode.Diagnostic(
-		new vscode.Range(
-			Math.max(0, err.line - 1),
-			Math.max(0, err.column - 1),
-			Math.max(0, (err.endLine ?? err.line) - 1),
-			Math.max(0, (err.endColumn ?? (err.column + 1)) - 1)
-		),
-		err.message,
-		ov.is(err.type, 'error') ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
-	);
+	const staticDiagnostics = [libModules[thisModuleName].errors, libModules[thisModuleName].warnings, errors.errors, errors.warnings].flat();
+	const dynamicDiagnostics = moduleCache[thisModuleName] ?? [];
+	moduleCache[thisModuleName] = { filePath, methods, dynamicDiagnostics, staticDiagnostics, parsedModule: libModules[thisModuleName] }
 }
 
 function removeModule(filePath, checkIgnore = false) {
@@ -733,6 +152,18 @@ function refactorToJS(moduleName) {
 	return js_printer.print_module_to_str(module.parsedModule);
 }
 
+function checkTypes(modules) {
+	const mods = {};
+	modules.forEach(mod => { if (mod in moduleCache) mods[mod] = moduleCache[mod].parsedModule; })
+	
+	const type_errors = type_checker.check_modules(mods, libModules, knownTypes);
+
+	Object.keys(type_errors.errors).forEach(mod => {
+		if (!(mod in moduleCache)) return;
+		moduleCache[mod].dynamicDiagnostics = [...type_errors.errors[mod], ...type_errors.warnings[mod]];
+	});
+}
+
 module.exports = {
 	updateModule,
 	removeModule,
@@ -747,4 +178,7 @@ module.exports = {
 	prettyPrintModule,
 	prettyPrintMethod,
 	refactorToJS,
+	libModules,
+	knownTypes,
+	checkTypes
 };

@@ -53,4 +53,8 @@ const char_opers = [[], [], []];
 const char_oper = [...char_opers[2], ...char_opers[1], ...char_opers[0]];
 
 
-module.exports = { ops, lett_oper, char_oper }
+function empty_debug() {
+	return JSON.parse(JSON.stringify({ begin: { line: 1, position: -1 }, end: { line: 1, position: -1 } }));
+}
+
+module.exports = { ops, lett_oper, char_oper, empty_debug }
