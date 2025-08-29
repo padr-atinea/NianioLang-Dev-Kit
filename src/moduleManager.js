@@ -85,8 +85,9 @@ function updateModule(document, checkIgnore = false) {
 	const errors = module_checker.check_module(libModules[thisModuleName], true, {});
 
 	const staticDiagnostics = [libModules[thisModuleName].errors, libModules[thisModuleName].warnings, errors.errors, errors.warnings].flat();
-	const dynamicDiagnostics = moduleCache[thisModuleName] ?? [];
-	moduleCache[thisModuleName] = { filePath, methods, dynamicDiagnostics, staticDiagnostics, parsedModule: libModules[thisModuleName] }
+	const dynamicDiagnostics = moduleCache[thisModuleName]?.dynamicDiagnostics ?? [];
+	const varPositions = moduleCache[thisModuleName]?.varPositions ?? {};
+	moduleCache[thisModuleName] = { filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] }
 }
 
 function removeModule(filePath, checkIgnore = false) {
@@ -160,6 +161,7 @@ function checkTypes(modules) {
 
 	Object.keys(type_errors.errors).forEach(mod => {
 		if (!(mod in moduleCache)) return;
+		moduleCache[mod].varPositions = type_errors.varPositions[mod] ?? {};
 		moduleCache[mod].dynamicDiagnostics = [...type_errors.errors[mod], ...type_errors.warnings[mod]];
 	});
 }

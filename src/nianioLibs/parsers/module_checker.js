@@ -83,7 +83,7 @@ function check_module(module, check_public_fun, functions) {
 	const called = {func: {}, module: {}};
 	const state = {
 		return: {was: false, arg: ov.mk('none')},
-		current_module: module.name,
+		current_module: module.module_name,
 		in_loop: false,
 		called: called,
 		vars: {},

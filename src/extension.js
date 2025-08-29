@@ -7,6 +7,9 @@ const ptdPrinter = require('./ptd-printer');
 const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
+const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
+
+let hoverDepth = 0;
 
 let isDebug = false;
 
@@ -46,11 +49,11 @@ function tryGetPosToken(document, pos) {
 	const filePath = document.fileName;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const thisModule = moduleManager.getModule(thisModuleName);
-	const token = thisModule.parsedModule.varPositions[pos];
+	const token = thisModule.varPositions[pos];
 	if (!token) return null;
 	if (ov.is(token, 'ref')) {
 		const defPos = positionToIndex(token.ref.line, token.ref.position);
-		const def = thisModule.parsedModule.varPositions[defPos];
+		const def = thisModule.varPositions[defPos];
 		return ov.mk('ref', ov.as(def, 'def'));
 	}
 	return token;
@@ -60,7 +63,8 @@ const positionToIndex = (line, col) => `${line}|${col}`;
 const indexToPosition = (index) => index.split('|').map(part => parseInt(part));
 
 function tryGetPosTokenAtPosition(document, position) {
-	const range = document.getWordRangeAtPosition(position, funcRegex);
+	const range = document.getWordRangeAtPosition(position, funcAndFieldRegex);
+	if (!range) return { token: null, range: null };
 	const token = tryGetPosToken(document, positionToIndex(range.start.line + 1, range.start.character + 1));
 	return { token, range };
 }
@@ -82,6 +86,8 @@ async function provideDefinition(document, position) {
 			if (!module) return;
 			const doc = await vscode.workspace.openTextDocument(module.filePath);
 			return new vscode.Location(doc.uri, new vscode.Position(0, 0));
+		} else {
+			return;
 		}
 	}
 	
@@ -148,14 +154,14 @@ async function provideCompletionItems(document, position) {
 			return item;
 		});
 		// const thisPos = document.offsetAt(position);
-		const fields = Object.values(thisModule.parsedModule.varPositions)
+		const fields = Object.values(thisModule.varPositions)
 			.filter((token) => ov.is(token, 'def')
 				&& ((token.def.defPlace.line - 1 === position.line && token.def.defPlace.line - 1 < position.character) || token.def.defPlace.line - 1 < position.line )
 				&& ((position.line == token.def.endPlace.line - 1 && position.character < token.def.endPlace.position - 1) || position.line < token.def.endPlace.line - 1)
 			)
 			.map((token) => {
 				const item = new vscode.CompletionItem(token.def.name, vscode.CompletionItemKind.Field);
-				item.detail = `type: ${own_to_im_converter.get_type_constructor(token.def.var_dec.tct_type)}`;
+				item.detail = `type: ${own_to_im_converter.get_type_constructor(token.def.type, true, 0, moduleManager.knownTypes, true)}`;
 				item.insertText = new vscode.SnippetString(token.def.name);
 				// if (pos.nlType === null) return item;
 				// const body = parseNlType(pos.nlType);
@@ -393,8 +399,19 @@ function provideHover(document, position) {
 	const { token, range } = tryGetPosTokenAtPosition(document, position);
 	if (token) {
 		const md = new vscode.MarkdownString();
-		if (ov.is(token, 'def') || ov.is(token, 'ref')) {
-			md.appendCodeblock(`type: ${own_to_im_converter.get_type_constructor(ov.get_value(token).var_dec.tct_type)}`, 'nianiolang');
+		if (ov.is(token, 'def') || ov.is(token, 'ref') || ov.is(token, 'field')) {
+			if (ov.is(token, 'def') && vscode.workspace.getConfiguration('nianiolang').get('onFieldHover.showReferenceCount')) {
+				const referencesLength = Object.keys(token.def.refs ?? {}).length;
+				md.appendMarkdown(`${referencesLength} reference${referencesLength === 1 ? '' : 's'}\n\n`);
+			}
+			md.isTrusted = { enabledCommands: ['nianiolang.hover.dec', 'nianiolang.hover.inc'] };
+			const encodedArgs = encodeURIComponent(JSON.stringify({
+				uri: document.uri.toString(),
+				position: { line: position.line, character: position.character }
+			}));
+			md.appendMarkdown(`${hoverDepth > 0 ? `[ (-) ](command:nianiolang.hover.dec?${encodedArgs})` : ' (-) '} [ (+) ](command:nianiolang.hover.inc?${encodedArgs}) Depth: ${hoverDepth}\n`);
+			const type = own_to_im_converter.get_type_constructor(ov.get_value(token).type, true, hoverDepth, moduleManager.knownTypes, true);
+			md.appendCodeblock(`type: ${type}`, 'nianiolang');
 		}
 		if (isDebug) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
 		return new vscode.Hover(md, range);
@@ -412,6 +429,21 @@ function provideHover(document, position) {
 	}
 	md.appendCodeblock(method.rawMethod, 'nianiolang');
 	return new vscode.Hover(md, range);
+}
+
+async function refreshHover(args) {
+	const targetUri = vscode.Uri.parse(args.uri);
+	const targetPos = new vscode.Position(args.position.line, args.position.character);
+	const active = vscode.window.activeTextEditor;
+	if (!active || active.document.uri.toString() !== targetUri.toString()) {
+		const doc = await vscode.workspace.openTextDocument(targetUri);
+		await vscode.window.showTextDocument(doc, { preserveFocus: false, preview: true });
+	}
+	const editor = vscode.window.activeTextEditor;
+	if (!editor) return;
+	editor.selection = new vscode.Selection(targetPos, targetPos);
+	await vscode.commands.executeCommand('editor.action.hideHover');
+	await vscode.commands.executeCommand('editor.action.showHover');
 }
 
 async function prepareRename(document, position) {
@@ -437,7 +469,7 @@ async function provideRenameEdits(document, position, newName) {
 	if (!/[a-zA-Z0-9_]/.test(newName)) return;
 	let { token, range } = tryGetPosTokenAtPosition(document, position);
 	const edit = new vscode.WorkspaceEdit();
-	if (token && ov.is(token, 'ref') || ov.is(token, 'def')) {
+	if (token && (ov.is(token, 'ref') || ov.is(token, 'def'))) {
 		const def = ov.get_value(token);
 		for (const defPos of Object.keys(def.refs)) {
 			const pos = indexToPosition(defPos);
@@ -622,6 +654,8 @@ async function activate(context) {
 		vscode.languages.registerReferenceProvider(selector, { provideReferences }),
 		vscode.languages.registerCodeLensProvider(selector, codeLensProvider),
 
+		vscode.commands.registerCommand('nianiolang.hover.dec', async args => { hoverDepth--; await refreshHover(args); }),
+		vscode.commands.registerCommand('nianiolang.hover.inc', async args => { hoverDepth++; await refreshHover(args); }),
 		// vscode.commands.registerCommand('nianiolang.moduleNameNotEqualFileName', moduleNameNotEqualFileName),
 		// vscode.commands.registerCommand('activate.addImport', addImport),
 		// vscode.commands.registerCommand('nianiolang.makeMethodPublic', makeMethodPublic),

@@ -6,7 +6,7 @@ const array = require('../base/array');
 const ptd_parser = require('../parsers/ptd_parser');
 
 function add_error(errors, msg) {
-	array.push(errors.errors, {
+	array.push(errors.errors[errors.module], {
 		message: msg,
 		module: errors.module,
 		type: ov.mk('error'),

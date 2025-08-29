@@ -100,8 +100,8 @@ function check_types_imported(type, modules, errors) {
 	} else if (ov.is(match_type_7, 'tct_string')) {
 	} else if (ov.is(match_type_7, 'tct_bool')) {
 	} else if (ov.is(match_type_7, 'tct_var')) {
-		let vars = { ...ov.as(match_type_7, 'tct_var') };
-		for (const [name, from_type] of Object.entries(vars)) {
+		let var_s = { ...ov.as(match_type_7, 'tct_var') };
+		for (const [name, from_type] of Object.entries(var_s)) {
 			let match_from_type_1 = from_type;
 			if (ov.is(match_from_type_1, 'no_param')) {
 			} else if (ov.is(match_from_type_1, 'with_param')) {
@@ -110,8 +110,8 @@ function check_types_imported(type, modules, errors) {
 			}
 		}
 	} else if (ov.is(match_type_7, 'tct_own_var')) {
-		let vars = { ...ov.as(match_type_7, 'tct_own_var') };
-		for (const [name, from_type] of Object.entries(vars)) {
+		let var_s = { ...ov.as(match_type_7, 'tct_own_var') };
+		for (const [name, from_type] of Object.entries(var_s)) {
 			let match_from_type_2 = from_type;
 			if (ov.is(match_from_type_2, 'no_param')) {
 			} else if (ov.is(match_from_type_2, 'with_param')) {
@@ -175,7 +175,7 @@ function prepare_def_fun(modules, errors) {
 // }
 
 function check_modules(modules, lib_modules, known_types) {
-	let errors = { errors: { '': [] }, warnings: { '': [] }, module: '', current_debug: nast.empty_debug() };
+	let errors = { errors: { '': [] }, warnings: { '': [] }, module: '', current_debug: nast.empty_debug(), varPositions: {} };
 	let deref = { delete: [], create: [] };
 	try {
 		for (const [module_name, ast] of Object.entries(modules)) {
@@ -228,7 +228,7 @@ function check_modules(modules, lib_modules, known_types) {
 		add_error(errors, `!! parser error !! ${e.message}`);
 	}
 
-	return { errors: errors.errors, deref: deref, warnings: errors.warnings };
+	return { errors: errors.errors, deref: deref, warnings: errors.warnings, varPositions: errors.varPositions };
 }
 
 function get_own_conv_defs(defs, types, known_types) {
@@ -280,7 +280,7 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 			}
 		}
 		check_types_imported(arg_type, modules, errors);
-		add_var_decl_to_vars(arg_type, fun_arg.name, fun_vars);
+		add_var_decl_to_vars(arg_type, fun_arg.name, fun_vars, errors, fun_arg.place);
 		module.fun_def[i].args[j].tct_type = arg_type;
 	}
 	modules.env.ret_type = fun_def.ret_type.tct_type;
@@ -295,11 +295,7 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 		module.fun_def[i].ret_type.tct_type = special_fun_def.r;
 		for (let j = 0; j < array.len(module.fun_def[i].args); j++) {
 			module.fun_def[i].args[j].tct_type = special_fun_def.a[j].type;
-			fun_vars[module.fun_def[i].args[j].name] = {
-				overwrited: ov.mk('no'),
-				type: special_fun_def.a[j].type,
-				referenced_by: ov.mk('none')
-			};
+			fun_vars[module.fun_def[i].args[j].name] = new_var_decl(module.fun_def[i].args[j].name, special_fun_def.a[j].type, module.fun_def[i].args[j].place, false);
 		}
 	} else {
 		module.fun_def[i].ret_type.tct_type = modules.env.ret_type;
@@ -376,14 +372,14 @@ function join_vars(vars, vars_op, modules, errors, known_types) {
 		if (ov.is(match_var_overwrited_2, 'yes')) {
 			let t1 = var_.type;
 			let t2 = hash.get_value(vars_op, var_name).type;
-			set_type_to_variable(vars, var_name, ptd_system.cross_type(t1, t2, modules, errors, known_types));
+			set_type_to_variable(vars, var_name, ptd_system.cross_type(t1, t2, modules, errors, known_types), errors, var_.defPlace);
 		} else if (ov.is(match_var_overwrited_2, 'no')) {
 		}
 	}
 }
 
-function set_end_function(vars) {
-	set_type_to_variable(vars, '__END', tct.empty());
+function set_end_function(vars, errors, place) {
+	set_type_to_variable(vars, '__END', tct.empty(), errors, place);
 }
 
 function check_cmd(cmd, modules, b_vars, errors, known_types) {
@@ -422,7 +418,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 			check_val(value, modules, vars, errors, known_types);
 		} else if (ov.is(match_as_for_start_0, 'var_decl')) {
 			let var_decl = ov.as(match_as_for_start_0, 'var_decl');
-			add_var_to_vars(check_var_decl(var_decl, modules, vars, errors, known_types), var_decl.name, vars);
+			add_var_to_vars(check_var_decl(var_decl, modules, vars, errors, known_types), vars, errors);
 		}
 		let vars_op = {...vars};
 		if (!(ov.is(as_for.cond.value, 'nop'))) {
@@ -523,13 +519,13 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 				add_error(errors, 'return value has the wrong type: ' + get_print_check_info(check_info));
 			}
 		}
-		set_end_function(vars);
+		set_end_function(vars, errors, cmd.debug.end);
 	} else if (ov.is(match_cmd_cmd_0, 'block')) {
 		let block = ov.as(match_cmd_cmd_0, 'block');
 		for (let i = 0; i < array.len(block.cmds); i++) {
 			const r = check_cmd(block.cmds[i], modules, vars, errors, known_types);
 			for (const [var_name, var_] of Object.entries(r)) {
-				add_var_to_vars(var_, var_name, vars);
+				add_var_to_vars(var_, vars, errors);
 			}
 		}
 		for (let i = 0; i < array.len(block.cmds); i++) {
@@ -545,7 +541,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 		for (const arg of as_die) {
 			check_val(arg, modules, vars, errors, known_types);
 		}
-		set_end_function(vars);
+		set_end_function(vars, errors, cmd.debug.end);
 	} else if (ov.is(match_cmd_cmd_0, 'var_decl')) {
 		let var_decl = ov.as(match_cmd_cmd_0, 'var_decl');
 		hash.set_value(ret, var_decl.name, check_var_decl(var_decl, modules, vars, errors, known_types));
@@ -570,10 +566,12 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 	} else if (ov.is(match_cmd_cmd_0, 'nop')) {
 	}
 	for (const [var_name, var_] of Object.entries(b_vars)) {
-		hash.set_value(b_vars, var_name, hash.get_value(vars, var_name));
+		const v = hash.get_value(vars, var_name);
+		v.endPlace = cmd.debug.end;
+		hash.set_value(b_vars, var_name, v);
 	}
 	if (hash.has_key(vars, '__END')) {
-		hash.set_value(b_vars, '__END', { overwrited: ov.mk('yes'), type: tct.empty(), referenced_by: ov.mk('none') });
+		hash.set_value(b_vars, '__END', new_var_decl('__END', tct.empty(), ov.mk('none'), true));
 	}
 	return ret;
 }
@@ -780,8 +778,8 @@ function check_match(as_match, modules, vars, errors, known_types) {
 			} else {
 				branch_var_type = tct.tct_im();
 			}
-			add_var_decl_to_vars(tct.tct_im(), var_decl.declaration.name, vars_case);
-			set_type_to_variable(vars_case, var_decl.declaration.name, branch_var_type);
+			add_var_decl_to_vars(tct.tct_im(), var_decl.declaration.name, vars_case, errors, var_decl.declaration.place);
+			set_type_to_variable(vars_case, var_decl.declaration.name, branch_var_type, errors, var_decl.declaration.place);
 			let match_var_decl_mod = var_decl.mod;
 			if (ov.is(match_var_decl_mod, 'none')) {
 				if (tct.is_own_type(val_type.type, known_types)) {
@@ -910,6 +908,19 @@ function check_val(val, modules, vars, errors, known_types) {
 		}
 		let var_ = hash.get_value(vars, variable_name);
 		let match_var_referenced_by = var_.referenced_by;
+
+		const place = placeToIndex(val.debug.begin);
+		const defPlace = placeToIndex(var_.defPlace);
+		errors.varPositions[errors.module][place] = { ref: var_.defPlace };
+
+		if (!(defPlace in errors.varPositions[errors.module])) {
+			errors.varPositions[errors.module][defPlace] = { def: var_ };
+		}
+		if (!('refs' in errors.varPositions[errors.module][defPlace].def)) {
+			errors.varPositions[errors.module][defPlace].def.refs = {};
+		}
+		errors.varPositions[errors.module][defPlace].def.refs[place] = 1;
+
 		if (ov.is(match_var_referenced_by, 'variable')) {
 			let name = ov.as(match_var_referenced_by, 'variable');
 			add_error(errors, `variable \'${variable_name}\' cannot be accessed, because it is referenced by \'${name}\'`);
@@ -1623,7 +1634,7 @@ function set_type_to_lval_spec(lval, ltype, rtype, empty_type, modules, vars, er
 	if (ov.is(match_var_overwrited_4, 'yes')) {
 		let new_type = mk_new_type_lval(var_tab, rtype, { type: var_.type, src: ov.mk('speculation') }, empty_type,
 			modules, errors, known_types);
-		set_type_to_variable(vars, var_name, new_type);
+		set_type_to_variable(vars, var_name, new_type, errors, var_.defPlace);
 		return rtype;
 	} else if (ov.is(match_var_overwrited_4, 'no')) {
 		mk_new_type_lval(var_tab, rtype, { type: var_.type, src: ov.mk('known') }, empty_type, modules, errors,
@@ -1648,12 +1659,14 @@ function get_type_record_key(bin_op, modules, vars, errors, known_types) {
 		let field = ov.as(bin_op.right.value, 'hash_key');
 		if (!hash.has_key(fields, field)) {
 			if (is_known(left_type)) {
-				add_error(errors, 'unknown record key: ' + field);
+				add_error(errors, 'unknown record key: ' + field, bin_op.right.debug);
 			}
 			left_type.type = tct.tct_im();
 			return left_type;
 		}
 		left_type.type = hash.get_value(fields, field);
+		const place = placeToIndex(bin_op.right.debug.begin);
+		errors.varPositions[errors.module][place] = { field: { name: field, type: left_type.type } };
 		return left_type;
 	}
 	if (ov.is(left_type.type, 'tct_own_rec')) {
@@ -1661,12 +1674,14 @@ function get_type_record_key(bin_op, modules, vars, errors, known_types) {
 		let field = ov.as(bin_op.right.value, 'hash_key');
 		if (!hash.has_key(fields, field)) {
 			if (is_known(left_type)) {
-				add_error(errors, 'unknown record key: ' + field);
+				add_error(errors, 'unknown record key: ' + field, bin_op.right.debug);
 			}
 			left_type.type = tct.tct_im();
 			return left_type;
 		}
 		left_type.type = hash.get_value(fields, field);
+		const place = placeToIndex(bin_op.right.debug.begin);
+		errors.varPositions[errors.module][place] = { field: { name: field, type: left_type.type } };
 		return left_type;
 	}
 	if (ov.is(left_type.type, 'tct_hash')) {
@@ -1679,8 +1694,10 @@ function get_type_record_key(bin_op, modules, vars, errors, known_types) {
 	}
 	if (!ptd_system.is_accepted(left_type, tct.rec({}), modules, errors) &&
 		!ptd_system.is_accepted(left_type, tct.own_rec({}), modules, errors)) {
-		add_error(errors, 'binary operator -> can be applied only to record : ' +
-			get_print_tct_type_name(left_type.type));
+		add_error(errors, `binary operator -> can be applied only to record : ${get_print_tct_type_name(left_type.type)}`, {
+			begin: bin_op.left.debug.end,
+			end: { line: bin_op.left.debug.end.line, position: bin_op.left.debug.end.position + 2 },
+		});
 	}
 	left_type.type = tct.tct_im();
 	return left_type;
@@ -1745,7 +1762,10 @@ function get_type_from_bin_op_and_check(bin_op, modules, vars, errors, known_typ
 	if (op === '[]=') {
 		if (!ptd_system.is_accepted(left_type2, tct.arr(tct.tct_im()), modules, errors) &&
 			!ptd_system.is_accepted(left_type2, tct.own_arr(tct.tct_im()), modules, errors)) {
-			add_error(errors, 'array operator \'[]=\' can be applied only to array', { begin: bin_op.left.end.begin, end: bin_op.right.debug.begin });
+			add_error(errors, 'array operator \'[]=\' can be applied only to array', {
+				begin: bin_op.left.debug.end,
+				end: { line: bin_op.left.debug.end.line, position: bin_op.left.debug.end.position + 3 }
+			});
 			return ret_type;
 		}
 		right_type.type = tct.arr(right_type.type);
@@ -2055,7 +2075,7 @@ function check_var_decl_try(var_decl, is_try, modules, vars, errors, known_types
 		add_error(errors, `variable \'${var_decl.name}\' already exists`);
 	}
 	let ret_types = {
-		ok: { overwrited: ov.mk('yes'), type: tct.empty(), referenced_by: ov.mk('none') },
+		ok: new_var_decl(var_decl.name, tct.empty(), var_decl.place, true),
 		err: { type: tct.empty(), src: ov.mk('speculation') }
 	};
 	let match_var_decl_type_0 = var_decl.type;
@@ -2108,20 +2128,33 @@ function check_var_decl_try(var_decl, is_try, modules, vars, errors, known_types
 	return ret_types;
 }
 
-function add_var_to_vars(var_, name, vars) {
-	hash.set_value(vars, name, var_);
-}
+const placeToIndex = (place) => `${place.line}|${place.position}`;
 
-function set_type_to_variable(vars, var_name, type) {
-	add_var_to_vars({ overwrited: ov.mk('yes'), type: type, referenced_by: ov.mk('none') }, var_name, vars);
-}
+function add_var_to_vars(var_, vars, errors) {
+	if (var_.name === '__END') {
 
-function add_var_decl_to_vars(var_type, name, vars) {
-	if (ov.is(var_type, 'tct_im') || ov.is(var_type, 'tct_empty')) {
-		add_var_to_vars({ overwrited: ov.mk('yes'), type: var_type, referenced_by: ov.mk('none') }, name, vars);
 	} else {
-		add_var_to_vars({ overwrited: ov.mk('no'), type: var_type, referenced_by: ov.mk('none') }, name, vars);
+		if (!(errors.module in errors.varPositions)) errors.varPositions[errors.module] = {};
+		const varPos = placeToIndex(var_.defPlace);
+		errors.varPositions[errors.module][varPos] = { def: var_ };
 	}
+	hash.set_value(vars, var_.name, var_);
+}
+
+function set_type_to_variable(vars, name, type, errors, place) {
+	add_var_to_vars(new_var_decl(name, type, place, true), vars, errors);
+}
+
+function add_var_decl_to_vars(var_type, name, vars, errors, place) {
+	if (ov.is(var_type, 'tct_im') || ov.is(var_type, 'tct_empty')) {
+		add_var_to_vars(new_var_decl(name, var_type, place, true), vars, errors);
+	} else {
+		add_var_to_vars(new_var_decl(name, var_type, place, false), vars, errors);
+	}
+}
+
+function new_var_decl(name, type, place, overwrited) {
+	return { name, type, defPlace: place, overwrited: overwrited ? ov.mk('yes') : ov.mk('no'), referenced_by: ov.mk('none') };
 }
 
 function add_var_decl_with_type_and_check(var_decl, type, vars, errors) {
@@ -2129,10 +2162,10 @@ function add_var_decl_with_type_and_check(var_decl, type, vars, errors) {
 		add_error(errors, `variable \'${var_decl.name}\' already exists`);
 	}
 	if (is_known(type)) {
-		add_var_to_vars({ overwrited: ov.mk('no'), type: type.type, referenced_by: ov.mk('none') }, var_decl.name, vars);
+		add_var_to_vars(new_var_decl(var_decl.name, type.type, var_decl.place, false), vars, errors);
 		var_decl.tct_type = type.type;
 	} else {
-		add_var_to_vars({ overwrited: ov.mk('yes'), type: type.type, referenced_by: ov.mk('none') }, var_decl.name, vars);
+		add_var_to_vars(new_var_decl(var_decl.name, type.type, var_decl.place, true), vars, errors);
 		var_decl.tct_type = type.type;
 	}
 }
@@ -2254,8 +2287,9 @@ function fill_value_types_in_cmd(cmd, b_vars, modules, errors, known_types, anon
 	} else if (ov.is(match_cmd_cmd_1, 'block')) {
 		let block = ov.as(match_cmd_cmd_1, 'block');
 		for (let i = 0; i < array.len(block.cmds); i++) {
-			for (const [var_name, var_] of Object.entries(fill_value_types_in_cmd(block.cmds[i], vars, modules, errors, known_types, anon_own_conv, curr_module_name))) {
-				add_var_to_vars(var_, var_name, vars);
+			const vars_ = fill_value_types_in_cmd(block.cmds[i], vars, modules, errors, known_types, anon_own_conv, curr_module_name)
+			for (const [var_name, var_] of Object.entries(vars_)) {
+				add_var_to_vars(var_, vars, errors);
 			}
 		}
 		cmd.cmd = ov.mk('block', block);
@@ -2271,11 +2305,7 @@ function fill_value_types_in_cmd(cmd, b_vars, modules, errors, known_types, anon
 			var_decl.value = ov.mk('value', value);
 			cmd.cmd = ov.mk('var_decl', var_decl);
 		}
-		hash.set_value(ret, var_decl.name, {
-			overwrited: ov.mk('no'),
-			type: var_decl.tct_type,
-			referenced_by: ov.mk('none')
-		});
+		hash.set_value(ret, var_decl.name, new_var_decl(var_decl.name, var_decl.tct_type, var_decl.place, false));
 	} else if (ov.is(match_cmd_cmd_1, 'try')) {
 		let as_try = ov.as(match_cmd_cmd_1, 'try');
 		ret = fill_try_ensure_type(as_try, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
@@ -2303,8 +2333,7 @@ function fill_value_types_in_for(as_for, vars, modules, errors, known_types, ano
 	let match_as_for_start_1 = as_for.start;
 	if (ov.is(match_as_for_start_1, 'var_decl')) {
 		let var_decl = ov.as(match_as_for_start_1, 'var_decl');
-		add_var_to_vars({ overwrited: ov.mk('no'), type: var_decl.tct_type, referenced_by: ov.mk('none') }, var_decl.name,
-			vars);
+		add_var_to_vars(new_var_decl(var_decl.name, var_decl.tct_type, var_decl.place, false), vars, errors);
 		let var_decl_value = ov.as(var_decl.value, 'value');
 		fill_value_types(var_decl_value, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 		var_decl.value = ov.mk('value', var_decl_value);
@@ -2332,14 +2361,13 @@ function fill_value_types_in_fora(as_fora, vars, modules, errors, known_types, a
 	} else {
 		throw new Error();
 	}
-	add_var_to_vars({ overwrited: ov.mk('no'), type: inner_type, referenced_by: ov.mk('none') }, as_fora.iter.name, vars);
+	add_var_to_vars(new_var_decl(as_fora.iter.name, inner_type, as_fora.iter.place, false), vars, errors);
 	fill_value_types_in_cmd(as_fora.cmd, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 }
 
 function fill_value_types_in_forh(as_forh, vars, modules, errors, known_types, anon_own_conv, curr_module_name) {
 	fill_value_types(as_forh.hash, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
-	add_var_to_vars({ overwrited: ov.mk('no'), type: as_forh.key.tct_type, referenced_by: ov.mk('none') }, as_forh.key.
-		name, vars);
+	add_var_to_vars(new_var_decl(as_forh.key.name, as_forh.key.tct_type, as_forh.key.place, false), vars, errors);
 	let value_type;
 	let hash_type = unwrap_ref(as_forh.hash.type, modules, errors);
 	if (ov.is(hash_type, 'tct_hash')) {
@@ -2350,15 +2378,14 @@ function fill_value_types_in_forh(as_forh, vars, modules, errors, known_types, a
 		value_type = ov.mk('tct_im');
 	}
 	as_forh.val.tct_type = value_type;
-	add_var_to_vars({ overwrited: ov.mk('no'), type: value_type, referenced_by: ov.mk('none') }, as_forh.val.name, vars);
+	add_var_to_vars(new_var_decl(as_forh.val.name, value_type, as_forh.val.place, false), vars, errors);
 	fill_value_types_in_cmd(as_forh.cmd, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 }
 
 function fill_value_types_in_rep(as_rep, vars, modules, errors, known_types, anon_own_conv, curr_module_name) {
 	fill_value_types(as_rep.count, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
-	add_var_to_vars({ overwrited: ov.mk('no'), type: as_rep.iter.tct_type, referenced_by: ov.mk('none') }, as_rep.iter.
-		name, vars);
-	fill_value_types_in_cmd(as_rep.cmd, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
+	add_var_to_vars(new_var_decl(as_rep.iter.name, as_rep.iter.tct_type, as_rep.iter.place, false), vars, errors);
+	fill_value_types_in_cmd(as_rep.cmd, vars, modules, errors, known_types, anon_own_conv, curr_module_name, errors);
 }
 
 function fill_value_types_in_while(as_while, vars, modules, errors, known_types, anon_own_conv, curr_module_name) {
@@ -2389,8 +2416,7 @@ function fill_value_types_in_match(as_match, vars, modules, errors, known_types,
 				value.declaration.tct_type = ov.as((ov.as(variant_type, 'tct_own_var'))[label], 'with_param');
 				as_match.branch_list[i].variant.value = ov.mk('value', value);
 			}
-			add_var_to_vars({ overwrited: ov.mk('no'), type: value.declaration.tct_type, referenced_by: ov.mk('none') },
-				value.declaration.name, vars);
+			add_var_to_vars(new_var_decl(value.declaration.name, value.declaration.tct_type, value.declaration.place, false), vars, errors);
 		}
 		fill_value_types_in_cmd(as_match.branch_list[i].cmd, vars, modules, errors, known_types, anon_own_conv,
 			curr_module_name);
@@ -2605,13 +2631,13 @@ function fill_try_ensure_type(try_ensure, vars, modules, errors, known_types, an
 		let match_decl_value = decl.value;
 		if (ov.is(match_decl_value, 'value')) {
 			let value = ov.as(match_decl_value, 'value');
-			vars[decl.name] = { overwrited: ov.mk('no'), type: decl.tct_type, referenced_by: ov.mk('none') };
+			add_var_to_vars(new_var_decl(decl.name, decl.tct_type, decl.place, false), vars, errors);
 			fill_value_types(value, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 			decl.value = ov.mk('value', value);
 		} else if (ov.is(match_decl_value, 'none')) {
 		}
-		ret[decl.name] = { overwrited: ov.mk('no'), type: decl.tct_type, referenced_by: ov.mk('none') };
-		
+		ret[decl.name] = new_var_decl(decl.name, decl.tct_type, decl.place, false);
+
 		const a = ov.mk('decl', decl);
 		Object.keys(try_ensure).forEach(v => delete try_ensure[v]);
 		Object.keys(a).forEach(v => try_ensure[v] = a[v]);
@@ -2654,5 +2680,6 @@ function takes_own_arg(function_, defined_types) {
 
 module.exports = {
 	// check,
-	check_modules
+	check_modules,
+	get_print_tct_type_name
 }

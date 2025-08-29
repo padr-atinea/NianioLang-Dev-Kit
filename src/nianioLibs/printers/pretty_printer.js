@@ -138,9 +138,7 @@ function print_var_decl(var_decl) {
 }
 
 function pind(ind) {
-	var r = '';
-	for (let i = 0; i < ind; i++) r += '\t';
-	return r;
+	return '\t'.repeat(ind);
 }
 
 function join_print_hash_elem(aval) {

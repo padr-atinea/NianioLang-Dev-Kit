@@ -2,7 +2,7 @@
     "name": "nianiolang-dev-kit",
     "displayName": "NianioLang Dev Kit",
     "description": "",
-    "version": "1.1.3",
+    "version": "1.2.0",
     "publisher": "padr",
     "engines": {
         "vscode": "^1.98.0"
@@ -79,6 +79,11 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Przy najechaniu na metodę: pokaż liczbę referencji"
+				},
+				"nianiolang.onFieldHover.showReferenceCount": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy najechaniu na pole: pokaż liczbę referencji"
 				}
 			}
 		},

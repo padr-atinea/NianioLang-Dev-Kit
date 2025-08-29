@@ -38,7 +38,7 @@ NianioLang Dev Kit activates automatically on files with the `nianiolang` langua
 - nianiolang.onPrettyPrintModule.removeMod (boolean)
 - nianiolang.onPrettyPrintModule.printNewStamp (boolean)
 - nianiolang.onMethodHover.showReferenceCount (boolean)
-
+- nianiolang.onFieldHover.showReferenceCount (boolean)
 ## License
 
 This extension is licensed under the MIT License.

@@ -4,6 +4,9 @@ const diagnostics = vscode.languages.createDiagnosticCollection("nianiolang");
 const moduleManager = require('./moduleManager');
 const ov = require('./nianioLibs/base/ov');
 
+const positionToIndex = (line, col) => `${line}|${col}`;
+const indexToPosition = (index) => index.split('|').map(part => parseInt(part));
+
 async function updateAllOpenTabs(document) {
 	const uriSet = new Set([document?.uri.fsPath, null, undefined]);
 	const docs = [];
@@ -42,6 +45,36 @@ function updateDiagnostics(document, checkTypes = true) {
 		err.message,
 		ov.is(err.type, 'error') ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
 	));
+
+	// const diagnosticsList = [];
+	// Object.entries(thisModule.varPositions).forEach(([p, val]) => {
+	// 	const pos = indexToPosition(p);
+	// 	try {
+	// 		if (ov.is(val, 'ref')) {
+	// 			const ref = ov.as(val, 'ref');
+	// 			const defPos = positionToIndex(ref.line, ref.position);
+	// 			if (ov.is(thisModule.varPositions[defPos], 'def')) {
+	// 				const def = ov.as(thisModule.varPositions[defPos], 'def');
+	// 				const ragne = new vscode.Range(pos[0] - 1, pos[1] - 1, pos[0] - 1, pos[1] - 1 + def.name.length);
+	// 				diagnosticsList.push(new vscode.Diagnostic(ragne, `ref ${def.name}`, vscode.DiagnosticSeverity.Information));
+	// 			} else {
+	// 				const ragne = new vscode.Range(pos[0] - 1, pos[1] - 1, pos[0] - 1, pos[1] - 1 + 1);
+	// 				diagnosticsList.push(new vscode.Diagnostic(ragne, `ref !!err ${defPos}`, vscode.DiagnosticSeverity.Error));
+	// 			}
+	// 		} else if (ov.is(val, 'def')) {
+	// 			const def = ov.as(val, 'def');
+	// 			const ragne = new vscode.Range(def.defPlace.line - 1, def.defPlace.position - 1, def.defPlace.line - 1, def.defPlace.position - 1 + def.name.length);
+	// 			diagnosticsList.push(new vscode.Diagnostic(ragne, `def ${def.name}`, vscode.DiagnosticSeverity.Warning));
+	// 		} else {
+	// 			console.log('error', val);
+	// 		}
+	// 	} catch (e) {
+	// 		const ragne = new vscode.Range(pos[0] - 1, pos[1] - 1, pos[0] - 1, pos[1] - 1 + 1);
+	// 		diagnosticsList.push(new vscode.Diagnostic(ragne, `ref !!err`, vscode.DiagnosticSeverity.Error));
+	// 		console.error('Error processing variable position:', e);
+	// 	}
+	// });
+
 	diagnostics.set(document.uri, diagnosticsList);
 }
 

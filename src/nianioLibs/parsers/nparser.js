@@ -514,7 +514,6 @@ function parse_expr_rec(state, prec) {
 		}
 	} else {
 		const err = 'error in parse_expr:' + '\n' + ntokenizer.info(state.state);
-		add_error(state, err);
 		return ov.mk('err', err);
 	}
 	const left = {
@@ -541,7 +540,6 @@ function eat_text(state) {
 	if (ntokenizer.is_text(state.state)) {
 		return ov.mk('ok', ntokenizer.eat_text(state.state));
 	} else {
-		add_error(state, 'word expected');
 		return ov.mk('err', 'word expected');
 	}
 }
@@ -670,7 +668,9 @@ function parse_block(state) {
 		if (ov.is(try_tmp, 'err')) {
 			add_error(state, ov.as(try_tmp, 'err'));
 			const line = ntokenizer.get_line(state.state);
-			while (!ntokenizer.next_is(state.state, ';') && line === ntokenizer.get_line(state.state) && !ntokenizer.is_type(state.state, ov.mk('end'))) {
+			while (!ntokenizer.next_is(state.state, ';') 
+				&& line === ntokenizer.get_line(state.state) 
+				&& !ntokenizer.is_type(state.state, ov.mk('end'))) {
 				ntokenizer.get_next_token(state.state);
 			}
 		} else {

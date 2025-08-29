@@ -86,7 +86,7 @@ function get_next_token(state) {
 	state.place_ws = { line: state.ln_nr, position: state.pos - state.ln_pos + 1 };
 	eat_ws(state);
 	state.place = { line: state.ln_nr, position: state.pos - state.ln_pos + 1 };
-	if (ov.is(state.type, 'error')) return;
+	// if (ov.is(state.type, 'error')) return;
 	if (state.pos == state.len) {
 		state.type = ov.mk('end');
 		state.next_token = '';
@@ -163,6 +163,7 @@ function get_next_token(state) {
 	} else {
 		state.type = ov.mk('error');
 		state.next_token = char;
+		state.pos++;
 	}
 }
 
