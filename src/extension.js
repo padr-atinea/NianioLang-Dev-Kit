@@ -10,6 +10,7 @@ const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+
 const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 
 let hoverDepth = 0;
+let hoverShowOriginalTypeName = false;
 
 let isDebug = false;
 
@@ -161,7 +162,7 @@ async function provideCompletionItems(document, position) {
 			)
 			.map((token) => {
 				const item = new vscode.CompletionItem(token.def.name, vscode.CompletionItemKind.Field);
-				item.detail = `type: ${own_to_im_converter.get_type_constructor(token.def.type, true, 0, moduleManager.knownTypes, true)}`;
+				item.detail = `type: ${own_to_im_converter.get_type_constructor(token.def.type, true, 0, moduleManager.knownTypes, true, hoverShowOriginalTypeName)}`;
 				item.insertText = new vscode.SnippetString(token.def.name);
 				// if (pos.nlType === null) return item;
 				// const body = parseNlType(pos.nlType);
@@ -404,13 +405,16 @@ function provideHover(document, position) {
 				const referencesLength = Object.keys(token.def.refs ?? {}).length;
 				md.appendMarkdown(`${referencesLength} reference${referencesLength === 1 ? '' : 's'}\n\n`);
 			}
-			md.isTrusted = { enabledCommands: ['nianiolang.hover.dec', 'nianiolang.hover.inc'] };
+			md.isTrusted = { enabledCommands: ['nianiolang.hover.dec', 'nianiolang.hover.inc', 'nianiolang.hover.showOriginalTypeName'] };
 			const encodedArgs = encodeURIComponent(JSON.stringify({
 				uri: document.uri.toString(),
 				position: { line: position.line, character: position.character }
 			}));
-			md.appendMarkdown(`${hoverDepth > 0 ? `[ (-) ](command:nianiolang.hover.dec?${encodedArgs})` : ' (-) '} [ (+) ](command:nianiolang.hover.inc?${encodedArgs}) Depth: ${hoverDepth}\n`);
-			const type = own_to_im_converter.get_type_constructor(ov.get_value(token).type, true, hoverDepth, moduleManager.knownTypes, true);
+			const minus = hoverDepth > 0 ? `[ (-) ](command:nianiolang.hover.dec?${encodedArgs})` : ' (-) ';
+			const plus = `[ (+) ](command:nianiolang.hover.inc?${encodedArgs})`;
+			const showName = `[${hoverShowOriginalTypeName ? 'Hide' : 'Show'} original type names](command:nianiolang.hover.showOriginalTypeName?${encodedArgs})`;
+			md.appendMarkdown(`${minus} ${plus} Depth: ${hoverDepth} \t|\t ${showName}\n`);
+			const type = own_to_im_converter.get_type_constructor(ov.get_value(token).type, true, hoverDepth, moduleManager.knownTypes, true, hoverShowOriginalTypeName);
 			md.appendCodeblock(`type: ${type}`, 'nianiolang');
 		}
 		if (isDebug) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
@@ -656,6 +660,7 @@ async function activate(context) {
 
 		vscode.commands.registerCommand('nianiolang.hover.dec', async args => { hoverDepth--; await refreshHover(args); }),
 		vscode.commands.registerCommand('nianiolang.hover.inc', async args => { hoverDepth++; await refreshHover(args); }),
+		vscode.commands.registerCommand('nianiolang.hover.showOriginalTypeName', async args => { hoverShowOriginalTypeName = !hoverShowOriginalTypeName; await refreshHover(args); }),
 		// vscode.commands.registerCommand('nianiolang.moduleNameNotEqualFileName', moduleNameNotEqualFileName),
 		// vscode.commands.registerCommand('activate.addImport', addImport),
 		// vscode.commands.registerCommand('nianiolang.makeMethodPublic', makeMethodPublic),

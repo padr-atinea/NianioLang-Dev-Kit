@@ -68,21 +68,22 @@ function get_required_arg_type(type, known_types) {
 	}
 }
 
-function get_type_constructor(type, remove_owns, refs_depth, known_types, format = false, tabs = 0) {
+function get_type_constructor(type, remove_owns, refs_depth, known_types, format = false, hoverShowOriginalTypeName = false, tabs = 0) {
 	if (!remove_owns) {
 		refs_depth = 0;
+		hoverShowOriginalTypeName = false;
 		format = false;
 	}
-	return _get_type_constructor(type, remove_owns ? 'ptd' : 'own', refs_depth, known_types, format, tabs).res;
+	return _get_type_constructor(type, remove_owns ? 'ptd' : 'own', refs_depth, known_types, format, hoverShowOriginalTypeName, tabs).res;
 }
 
-function _get_type_constructor(type, own, refs_depth, known_types, format, tabs) {
+function _get_type_constructor(type, own, refs_depth, known_types, format, hoverShowOriginalTypeName, tabs) {
 	const max_line_length = 40;
 	const max_line_count = 3;
 	if (ov.is(type, 'tct_rec') || ov.is(type, 'tct_own_rec')) {
 		let local_format = false;
 		const entries = Object.entries(ov.get_value(type)).map(([name, p_type]) => {
-			const r = _get_type_constructor(p_type, own, refs_depth, known_types, format, tabs + 1);
+			const r = _get_type_constructor(p_type, own, refs_depth, known_types, format, hoverShowOriginalTypeName, tabs + 1);
 			local_format |= r.break_line;
 			local_format |= r.res.length > max_line_length;
 			return `${name} => ${r.res}`;
@@ -94,16 +95,16 @@ function _get_type_constructor(type, own, refs_depth, known_types, format, tabs)
 		res += `${local_format ? `\n${'\t'.repeat(tabs)}` : ''}})`;
 		return { break_line: local_format, res: res };
 	} else if (ov.is(type, 'tct_hash') || ov.is(type, 'tct_own_hash')) {
-		const r = _get_type_constructor(ov.get_value(type), own, refs_depth, known_types, format, tabs);
+		const r = _get_type_constructor(ov.get_value(type), own, refs_depth, known_types, format, hoverShowOriginalTypeName, tabs);
 		return { break_line: r.break_line, res: `${ov.is(type, 'tct_hash') ? 'ptd' : own}::hash(${r.res})` };
 	} else if (ov.is(type, 'tct_arr') || ov.is(type, 'tct_own_arr')) {
-		const r = _get_type_constructor(ov.get_value(type), own, refs_depth, known_types, format, tabs);
+		const r = _get_type_constructor(ov.get_value(type), own, refs_depth, known_types, format, hoverShowOriginalTypeName, tabs);
 		return { break_line: r.break_line, res: `${ov.is(type, 'tct_arr') ? 'ptd' : own}::arr(${r.res})` };
 	} else if (ov.is(type, 'tct_var') || ov.is(type, 'tct_own_var')) {
 		let local_format = false;
 		const entries = Object.entries(ov.get_value(type)).map(([name, p_type]) => {
 			if (ov.is(p_type, 'with_param')) {
-				const r = _get_type_constructor(ov.as(p_type, 'with_param'), own, refs_depth, known_types, format, tabs + 1);
+				const r = _get_type_constructor(ov.as(p_type, 'with_param'), own, refs_depth, known_types, format, hoverShowOriginalTypeName, tabs + 1);
 				local_format |= r.break_line;
 				local_format |= max_line_length;
 				return `${name} => ${r.res}`;
@@ -119,8 +120,8 @@ function _get_type_constructor(type, own, refs_depth, known_types, format, tabs)
 	} else if (ov.is(type, 'tct_ref')) {
 		let p = ov.as(type, 'tct_ref');
 		if (refs_depth > 0 && format) {
-			const res = _get_type_constructor(known_types[p], own, refs_depth - 1, known_types, format, tabs);
-			return { break_line: res.break_line, res: `(@${p}) ${res.res}` };
+			const res = _get_type_constructor(known_types[p], own, refs_depth - 1, known_types, format, hoverShowOriginalTypeName, tabs);
+			return hoverShowOriginalTypeName ? { break_line: res.break_line, res: `(@${p}) ${res.res}` } : res;
 		}
 		else return { break_line: false, res: `@${p}` };
 	} else if (ov.is(type, 'tct_int')) return { break_line: false, res: 'ptd::ptd_int()' };
