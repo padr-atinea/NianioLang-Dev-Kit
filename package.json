@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "1.2.2",
+	"version": "1.2.3",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -140,14 +140,6 @@
 			"editor/context": [
 				{ "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang", "group": "1_refactor" },
 				{ "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang", "group": "1_refactor" }
-			],
-			"view/item/context": [
-				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == scm-graph", "group": "navigation@99" },
-				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == workbench.scm.history", "group": "navigation@99" },
-				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == gitlens.views.graph", "group": "navigation@99" }
-			],
-			"commandPalette": [
-				{ "command": "nianiolang.generatePatchFromCommit", "when": "true" }
 			],
 			"scm/historyItem/context": [
 				{ "command": "nianiolang.generatePatchFromCommit", "when": "scmProvider == git && !listMultiSelection", "group": "navigation@99" }

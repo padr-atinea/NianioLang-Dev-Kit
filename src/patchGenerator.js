@@ -113,11 +113,16 @@ async function generatePatch(commitish) {
 			continue;
 		}
 		if (!current) continue;
-		cleanedPatch.push(line);
 
 		if (line.startsWith("+")) current.stat.add++;
 		else if (line.startsWith("-")) current.stat.del++;
-		else if (line.startsWith("@@")) current.stat.hunks++;
+		else if (line.startsWith("@@")) {
+			line = `@@${line.split('@@')[0]}@@`;
+			current.stat.hunks++;
+		}
+
+
+		cleanedPatch.push(line);
 	}
 	if (current) files.push(current);
 
