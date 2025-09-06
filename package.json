@@ -1,53 +1,41 @@
 {
-    "name": "nianiolang-dev-kit",
-    "displayName": "NianioLang Dev Kit",
-    "description": "",
-    "version": "1.2.1",
-    "publisher": "padr",
-    "engines": {
-        "vscode": "^1.98.0"
-    },
+	"name": "nianiolang-dev-kit",
+	"displayName": "NianioLang Dev Kit",
+	"description": "",
+	"version": "1.2.2",
+	"publisher": "padr",
+	"engines": { "vscode": "^1.98.0" },
+	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
 	"scripts": {
 		"package": "vsce package",
 		"install": "code --install-extension $(ls -t *.vsix | head -n 1)"
 	},
-    "main": "./src/extension.js",
-    "activationEvents": [
-        "onCommand:nianiolang.makeMethodPublic",
-        "onCommand:nianiolang.addImportAndTriggerSignatureHelp"
-    ],
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/padr-atinea/NianioLang-Dev-Kit"
-    },
-    "icon": "logo.png",
-    "categories": [
-        "Programming Languages"
-    ],
-    "contributes": {
-        "languages": [{
-            "id": "nianiolang",
-            "aliases": [
-                "NianioLang",
-                "nianiolang",
-                "nl"
-            ],
-            "extensions": [
-                ".nl"
-            ],
-            "configuration": "./language-configuration.json"
-        }],
-        "grammars": [{
-            "language": "nianiolang",
-            "scopeName": "source.nl",
-            "path": "./syntaxes/nianiolang.tmLanguage.json"
-        }],
+	"main": "./src/extension.js",
+	"activationEvents": [
+		"onCommand:nianiolang.makeMethodPublic",
+		"onCommand:nianiolang.addImportAndTriggerSignatureHelp"
+	],
+	"repository": { "type": "git", "url": "https://github.com/padr-atinea/NianioLang-Dev-Kit" },
+	"icon": "logo.png",
+	"categories": [ "Programming Languages" ],
+	"contributes": {
+		"languages": [
+			{
+				"id": "nianiolang",
+				"aliases": [ "NianioLang", "nianiolang", "nl" ],
+				"extensions": [ ".nl" ],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{ "language": "nianiolang", "scopeName": "source.nl", "path": "./syntaxes/nianiolang.tmLanguage.json" }
+		],
 		"configuration": {
 			"properties": {
 				"nianiolang.onSave.prettyPrint": {
 					"type": "string",
-					"enum": ["none", "Current module", "Current method"],
-					"default": "Current module",
+					"enum": [ "none", "Current module", "Current method" ],
+					"default": "none",
 					"description": "Przy zapisie: formatowanie kodu NianioLang"
 				},
 				"nianiolang.onSave.removeUnusedModules": {
@@ -84,23 +72,89 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Przy najechaniu na pole: pokaż liczbę referencji"
+				},
+				"nianiolang.onGeneratePatchFromCommit.listOfExcludedFiles": {
+					"type": "array",
+					"default": [
+						".gitignore",
+						"script.pl",
+						".git",
+						"Makefile",
+						"cache_nl_tester",
+						"actions",
+						"cache_nl_script",
+						"out.diff",
+						"obj_tester",
+						"obj_out",
+						"index.pl",
+						"api.pl",
+						"index.fpl",
+						"'*zaleznosci_w_instadb.jpg'",
+						"ide_check.txt",
+						"cache_nl_null",
+						"ide_js.txt",
+						"ide.txt",
+						"'*.swm'",
+						"'*.swn'",
+						"'*.cgi'",
+						"obj",
+						".htaccess",
+						"'*.exe'",
+						"minigm",
+						"tags",
+						"applyscript",
+						"'*.zip'",
+						"'*.swo'",
+						"mk_cache",
+						"'*.stackdump'",
+						"cache_nl",
+						"cache_nl_js",
+						"compiler_lib.lib",
+						"'.*.swp'",
+						"'*~'",
+						"nl_logs",
+						"'*.log'",
+						"'*.orig'",
+						"'*.rej'",
+						"'*.bak'",
+						"'*.patch'",
+						"'#*#'"
+					],
+					"description": "Lista wyświetlanych plików pomijanych przy tworzeniu patcha"
+				},
+				"nianiolang.onGeneratePatchFromCommit.useCommitMessage": {
+					"type": "boolean",
+					"default": false,
+					"description": "Użyj opisu commita w nazwie generowanego pliku zamiast yyy"
 				}
 			}
 		},
-        "commands": [
-            { "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
-            { "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
-            { "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
-            { "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" }
-        ],
+		"commands": [
+			{ "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
+			{ "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
+			{ "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
+			{ "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" },
+			{ "command": "nianiolang.generatePatchFromCommit", "title": "NianioLang: Generate Patch From Commit", "icon": "$(diff)" }
+		],
 		"menus": {
 			"editor/context": [
-			    { "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang", "group": "1_refactor" },
-			    { "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang", "group": "1_refactor" }
+				{ "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang", "group": "1_refactor" },
+				{ "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang", "group": "1_refactor" }
+			],
+			"view/item/context": [
+				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == scm-graph", "group": "navigation@99" },
+				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == workbench.scm.history", "group": "navigation@99" },
+				{ "command": "nianiolang.generatePatchFromCommit", "when": "view == gitlens.views.graph", "group": "navigation@99" }
+			],
+			"commandPalette": [
+				{ "command": "nianiolang.generatePatchFromCommit", "when": "true" }
+			],
+			"scm/historyItem/context": [
+				{ "command": "nianiolang.generatePatchFromCommit", "when": "scmProvider == git && !listMultiSelection", "group": "navigation@99" }
 			]
 		}
-    },
-    "dependencies": {
-        "ignore": "^7.0.3"
-    }
+	},
+	"dependencies": {
+		"ignore": "^7.0.3"
+	}
 }

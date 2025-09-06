@@ -9,8 +9,11 @@
 			"name": "Extension",
 			"type": "extensionHost",
 			"request": "launch",
+			"runtimeExecutable": "code-insiders",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--enable-proposed-api",
+				"padr.nianiolang-dev-kit"
 			]
 		}
 	]

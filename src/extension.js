@@ -1,10 +1,12 @@
 const vscode = require('vscode');
 const path = require('path');
+const os = require('os');
 const moduleManager = require('./moduleManager');
 const diagnosticsManager = require('./diagnosticsManager');
 const ov = require('./nianioLibs/base/ov');
 const ptdPrinter = require('./ptd-printer');
 const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
+const patchGenerator = require('./patchGenerator');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
@@ -103,25 +105,6 @@ async function provideDefinition(document, position) {
 const printParamNoType = (param) => `${ov.is(param.mod, 'ref') ? 'ref ' : ''}${param.name}`;
 const printParamsNoType = (params) => `${params.map(printParamNoType).join(', ')}`;
 const printMethodNoType = (methodName, method) => `${methodName}(${printParamsNoType(method.args)})`;
-
-// const printParam = (param) => `${printParamNoType(param)}${param.type === null ? '' : ` : ${param.type}`}`;
-// const printParams = (params) => `${params.map(printParam).join(', ')}`;
-// const printMethod = (moduleName, methodName, method, isPublic = true) => `${isPublic ? `${moduleName}::` : ''}${methodName}(${printParams(method.args)})${method.returnType.length > 0 ? ` : ${method.returnType}` : ''}`
-
-// const parseBody = (body) => body.slice(1, -1).trim().split('\n').map(line => line.replace(/^\t/, '')).join('\n');
-
-// const parseNlType = (nlType) => {
-// 	return 'TODO';
-// 	if (!nlType) return null;
-// 	if (nlType[0] !== '@' && nlType.startsWith('ptd::')) return null;
-// 	nlType = nlType[0] == '@' ? nlType.slice(1) : nlType.split('(')[0]
-// 	const parts = nlType.split('::');
-// 	if (parts.length !== 2) return null;
-// 	const typeModule = moduleManager.getModule(parts[0]);
-// 	if (!typeModule) return null;
-// 	const body = parseBody(typeModule.publicMethods[parts[1]].body);
-// 	return body.startsWith('return ') ? body.slice('return '.length) : body;
-// }
 
 async function provideCompletionItems(document, position) {
 	const line = document.lineAt(position);
@@ -275,87 +258,6 @@ class NianioLangCodeActionProvider {
 		methodAction.command = { command: 'extension.prettyPrintMethod', title: 'Pretty Print Method', arguments: [document, range.start] };
 
 		return [moduleAction, methodAction];
-
-		// const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
-		// const thisModule = moduleManager.getModule(thisModuleName);
-		// if (!thisModule) return;
-		// const actions = [];
-		// const diagnostics = vscode.languages.getDiagnostics(document.uri);
-		// const diagnosticsDuplicates = diagnostics.map(d => d.code).reduce((prev, curr) => {
-		// 	if (!(Object.keys(prev).includes(curr))) prev[curr] = 0;
-		// 	prev[curr]++;
-		// 	return prev;
-		// }, {});
-		// for (const diagnostic of context.diagnostics) {
-		// 	if (diagnostic.code === 'missingImport') {
-		// 		const moduleName = document.getText(new vscode.Range(diagnostic.range.start, diagnostic.range.end));
-		// 		const action = new vscode.CodeAction(`Add 'use ${moduleName};'`, vscode.CodeActionKind.QuickFix);
-		// 		const edit = new vscode.WorkspaceEdit();
-		// 		const insertPosition = document.positionAt(thisModule.lastUseStatementPos);
-		// 		edit.insert(document.uri, insertPosition, `\nuse ${moduleName};`);
-		// 		action.edit = edit;
-		// 		action.diagnostics = [diagnostic];
-		// 		actions.push(action);
-		// 	} else if (diagnostic.code === 'privateMethod') {
-		// 		// The '${methodName}' method in module '${moduleName}' is private
-		// 		const methodNameMatch = diagnostic.message.match(/The '([a-zA-Z0-9_]+)' method in module/);
-		// 		const moduleNameMatch = diagnostic.message.match(/in module '([a-zA-Z0-9_]+)' is private/);
-		// 		if (moduleNameMatch && methodNameMatch) {
-		// 			const moduleName = moduleNameMatch[1];
-		// 			const functionName = methodNameMatch[1];
-		// 			const action = new vscode.CodeAction(`Make '${functionName}' public`, vscode.CodeActionKind.QuickFix);
-		// 			action.command = { command: 'nianiolang.makeMethodPublic', title: 'Make method public', arguments: [moduleName, functionName] };
-		// 			action.diagnostics = [diagnostic];
-		// 			actions.push(action);
-		// 		}
-
-		// 	} else if (diagnostic.code === 'duplicatedImport' || diagnostic.code === 'notUsedImport') {
-		// 		const endPos = document.getText()[document.offsetAt(diagnostic.range.end)] == '\n'
-		// 			? diagnostic.range.end.translate(1, -diagnostic.range.end.character)
-		// 			: diagnostic.range.end
-		// 		const range = new vscode.Range(diagnostic.range.start, endPos);
-		// 		const moduleName = document.getText(range).trim();
-		// 		const action = new vscode.CodeAction(`Remove '${moduleName}'`, vscode.CodeActionKind.QuickFix);
-		// 		let edit = new vscode.WorkspaceEdit();
-		// 		edit.delete(document.uri, range);
-		// 		action.edit = edit;
-		// 		action.diagnostics = [diagnostic];
-		// 		actions.push(action);
-		// 		if ((diagnosticsDuplicates['duplicatedImport'] ?? 0) + (diagnosticsDuplicates['notUsedImport'] ?? 0) > 1) {
-		// 			const fileAction = new vscode.CodeAction("Remove all unnecessary usings in this file", vscode.CodeActionKind.QuickFix);
-		// 			fileAction.command = {
-		// 				command: "extension.removeAllUsingsInFile",
-		// 				title: "Remove all unnecessary usings in this file",
-		// 				arguments: [document.uri]
-		// 			};
-		// 			actions.push(fileAction);
-		// 		}
-		// 	} else if (diagnostic.code === 'moduleNameNotEqualFileName') {
-		// 		// Module name '${moduleName}' must equal file name '${thisModuleName}'
-		// 		const methodNameMatch = diagnostic.message.match(/Module name '([a-zA-Z0-9_]+)' must equal /);
-		// 		const moduleNameMatch = diagnostic.message.match(/file name '([a-zA-Z0-9_]+)'/);
-		// 		if (moduleNameMatch && methodNameMatch) {
-		// 			const range = new vscode.Range(diagnostic.range.start, diagnostic.range.end);
-		// 			const filePath = moduleNameMatch[1];
-		// 			const action = new vscode.CodeAction(`Fix module name`, vscode.CodeActionKind.QuickFix);
-		// 			const edit = new vscode.WorkspaceEdit();
-		// 			edit.replace(document.uri, range, filePath);
-		// 			action.edit = edit;
-		// 			action.diagnostics = [diagnostic];
-		// 			actions.push(action);
-		// 			if (diagnosticsDuplicates['moduleNameNotEqualFileName'] > 1) {
-		// 				const fileAction = new vscode.CodeAction("Fix all incorret names", vscode.CodeActionKind.QuickFix);
-		// 				fileAction.command = {
-		// 					command: "extension.fixAllIncorretNames",
-		// 					title: "Fix all incorret names",
-		// 					arguments: [document.uri, filePath]
-		// 				};
-		// 				actions.push(fileAction);
-		// 			}
-		// 		}
-		// 	}
-		// }
-		// return actions;
 	}
 }
 
@@ -377,24 +279,6 @@ async function addImports(moduleNames, uri) {
 	}
 	await vscode.workspace.applyEdit(edit);
 }
-
-// function makeMethodPublic(moduleName, functionName) {
-// 	const module = moduleManager.getModule(moduleName);
-// 	if (!module) return;
-
-// 	vscode.workspace.openTextDocument(module.filePath).then((moduleDoc) => {
-// 		const edit = new vscode.WorkspaceEdit();
-// 		const text = moduleDoc.getText();
-// 		const re = new RegExp(`^(\\s*def\\s+)(${functionName}\\s*\\()`, 'm');
-// 		const match = re.exec(text);
-// 		if (match) {
-// 			const startPos = moduleDoc.positionAt(match.index);
-// 			const endPos = moduleDoc.positionAt(match.index + match[0].length);
-// 			edit.replace(moduleDoc.uri, new vscode.Range(startPos, endPos), `${match[1]}${moduleName}::${match[2]}`);
-// 			vscode.workspace.applyEdit(edit).then(moduleDoc.save);
-// 		}
-// 	});
-// }
 
 function provideHover(document, position) {
 	const { token, range } = tryGetPosTokenAtPosition(document, position);
@@ -519,45 +403,6 @@ async function getLocationFromReferences(document, range) {
 	return locations;
 }
 
-// async function removeAllUsingsInFile(uri) {
-// 	const document = await vscode.workspace.openTextDocument(uri);
-// 	const diagnostics = vscode.languages.getDiagnostics(document.uri);
-// 	const edit = new vscode.WorkspaceEdit();
-// 	for (const diagnostic of diagnostics) {
-// 		if (diagnostic.code !== 'duplicatedImport' && diagnostic.code !== 'notUsedImport') continue;
-// 		const text = document.getText();
-// 		const charAtEnd = text[document.offsetAt(diagnostic.range.end)];
-// 		const endPos = charAtEnd === '\n'
-// 			? diagnostic.range.end.translate(1, -diagnostic.range.end.character)
-// 			: diagnostic.range.end;
-// 		const range = new vscode.Range(diagnostic.range.start, endPos);
-// 		edit.delete(document.uri, range);
-// 	}
-// 	await vscode.workspace.applyEdit(edit);
-// }
-
-// async function fixAllIncorretNames(uri, newName) {
-// 	const document = await vscode.workspace.openTextDocument(uri);
-// 	const diagnostics = vscode.languages.getDiagnostics(document.uri);
-// 	const edit = new vscode.WorkspaceEdit();
-// 	for (const diagnostic of diagnostics) {
-// 		if (diagnostic.code !== 'moduleNameNotEqualFileName') continue;
-// 		const range = new vscode.Range(diagnostic.range.start, diagnostic.range.end);
-// 		edit.replace(document.uri, range, newName);
-// 	}
-// 	await vscode.workspace.applyEdit(edit);
-// }
-
-// async function fixAllIncorretNamesWhenRename(file) {
-// 	const newUri = file.newUri;
-// 	const filePath = path.basename(newUri.fsPath, path.extname(newUri.fsPath));
-// 	const answer = await vscode.window.showWarningMessage(
-// 		`Czy wykonać akcję naprawy nazw modułów w tym pliku?`,
-// 		{ modal: true }, 'Tak', 'Nie'
-// 	);
-// 	if (answer == 'Tak') fixAllIncorretNames(newUri, filePath);
-// }
-
 class ReferenceCounterCodeLensProvider {
 	constructor() {
 		this._onDidChangeCodeLenses = new vscode.EventEmitter();
@@ -619,20 +464,38 @@ async function loadAllModules() {
 		location: vscode.ProgressLocation.Notification,
 		title: `NianioLang Dev Kit: loading modules`,
 		cancellable: false
-	}, async (progress, _) => {
+	}, async (progress, token) => {
 		progress.report({ increment: 0 });
 		const files = await moduleManager.findFiles();
-		for (let i = 0; i < files.length; i++) {
-			try {
-				const document = await vscode.workspace.openTextDocument(files[i]);
-				moduleManager.updateModule(document);
-				const thisModuleName = path.basename(files[i].fsPath, path.extname(files[i].fsPath));
-				progress.report({ increment: i / files.length * 0.6, message: `${i} / ${files.length} (${Math.round(10000 * i / files.length) / 100}%)\n${thisModuleName}` });
-			} catch (e) {
-				if (!e.message.startsWith('Canceled')) console.error(e, e.stack);
-				e;
+		const total = files.length;
+		if (total === 0) return;
+		const concurrency = Math.min(8, Math.max(1, Math.floor(os.cpus().length / 2)));
+		const increment = 100 / total;
+		let completed = 0;
+		const queue = files.slice();
+		queue.reverse();
+
+		async function worker() {
+			while (queue.length && (!token || !token.isCancellationRequested)) {
+				const uri = queue.shift();
+				let thisModuleName = "";
+				try {
+					const document = await vscode.workspace.openTextDocument(uri);
+					moduleManager.updateModule(document);
+					thisModuleName = path.basename(uri.fsPath, path.extname(uri.fsPath));
+				} catch (e) {
+					if (!(e && e.message && e.message.startsWith("Canceled"))) console.error(e, e.stack);
+				} finally {
+					completed++;
+					const percent = Math.round((10000 * completed) / total) / 100;
+					progress.report({ increment, message: `${completed} / ${total} (${percent}%)\n${thisModuleName}` });
+				}
 			}
 		}
+
+		const workers = [];
+		for (let i = 0; i < concurrency; i++) workers.push(worker());
+		await Promise.all(workers);
 	});
 
 	console.log(getCurrentDateTime(), 'loadAllModules complited');
@@ -681,6 +544,8 @@ async function activate(context) {
 		vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument(codeLensProvider)),
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
 		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
+
+		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchGenerator.generate), 
 	);
 
 	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
