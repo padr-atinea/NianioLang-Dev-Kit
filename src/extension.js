@@ -169,14 +169,15 @@ async function provideCompletionItems(document, position) {
 	}
 
 	const moduleName = publicMatch[2];
-	const module = moduleManager.getModule(publicMatch[2]);
+	const isType = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)@([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/.test(text);
+	const module = moduleManager.getModule(moduleName);
 	if (!module) return;
 	return Object.entries(module.methods).filter(([methodName, _]) => methodName.includes('::')).map(([methodName, method]) => {
 		methodName = methodName.split('::')[1];
-		const item = new vscode.CompletionItem(methodName, vscode.CompletionItemKind.Function);
+		const item = new vscode.CompletionItem(methodName, isType ? vscode.CompletionItemKind.TypeParameter : vscode.CompletionItemKind.Function);
 		const shortDef = printMethodNoType(methodName, method);
 		item.detail = shortDef;
-		item.insertText = new vscode.SnippetString(method.args.length > 0 ? `${methodName}($0)` : `${methodName}()`);
+		item.insertText = new vscode.SnippetString(method.args.length > 0 && !isType ? `${methodName}($0)` : `${methodName}${isType ? '' : '()'}`);
 		item.command = { command: 'nianiolang.addImportAndTriggerSignatureHelp', title: 'Add Import and Show Signature Help', arguments: [moduleName, document.uri] };
 		const md = new vscode.MarkdownString();
 		md.appendCodeblock(method.rawMethod, 'nianiolang');

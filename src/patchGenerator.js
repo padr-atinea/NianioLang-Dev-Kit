@@ -14,15 +14,6 @@ function runGit(args, cwd) {
 	});
 }
 
-async function getCommitDescription(sha, cwd) {
-	return await new Promise((resolve, reject) => {
-		cp.execFile("git", ["show", "--no-patch", "--format=%B", sha], { cwd }, (err, stdout, stderr) => {
-			if (err) reject(new Error(stderr || err.message));
-			else resolve(stdout.trimEnd());
-		});
-	});
-}
-
 async function getFormattedMtime(filePath) {
 	const big = await fs.stat(filePath, { bigint: true }).catch(() => null);
 	let mtimeNs;
@@ -90,7 +81,7 @@ async function generatePatch(commitish) {
 	let current = null;
 
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
+		let line = lines[i];
 		if (line.startsWith("index ") 
 			|| line.startsWith('deleted file mode')
 			|| line.startsWith('new file mode')
