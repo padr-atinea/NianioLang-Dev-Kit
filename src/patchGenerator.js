@@ -108,7 +108,7 @@ async function generatePatch(commitish) {
 		if (line.startsWith("+")) current.stat.add++;
 		else if (line.startsWith("-")) current.stat.del++;
 		else if (line.startsWith("@@")) {
-			line = `@@${line.split('@@')[0]}@@`;
+			line = `@@${line.split('@@')[1]}@@`;
 			current.stat.hunks++;
 		}
 
