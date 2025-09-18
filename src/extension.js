@@ -121,9 +121,32 @@ async function provideCompletionItems(document, position) {
 		});
 	}
 
+	const fieldMatch = text.match(/(?<!((?<!:):)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+((\[[a-zA-Z0-9_]+\])|(\{[a-zA-Z0-9_]+\}))*)->([a-zA-Z0-9_]*)$/);
+	if (fieldMatch) {
+		const { token, range } = tryGetPosTokenAtPosition(document, new vscode.Position(position.line, fieldMatch.index));
+		if (!token || !(ov.is(token, 'field') || ov.is(token, 'ref'))) return;
+		let type = ov.get_value(token).type;
+		while (ov.is(type, 'tct_arr') || ov.is(type, 'tct_hash') || ov.is(type, 'tct_ref')) {
+			if (ov.is(type, 'tct_arr')) type = ov.get_value(type);
+			if (ov.is(type, 'tct_hash')) type = ov.get_value(type);
+			if (ov.is(type, 'tct_ref')) type = moduleManager.knownTypes[ov.get_value(type)];
+		}
+		if (!ov.is(type, 'tct_rec')) return;
+		return Object.entries(ov.as(type, 'tct_rec')).map(([fieldName, fieldType]) => {
+			const item = new vscode.CompletionItem(fieldName, vscode.CompletionItemKind.Field);
+			item.detail = own_to_im_converter.get_type_constructor(fieldType, true, 0, moduleManager.knownTypes, false, hoverShowOriginalTypeName);
+			item.insertText = new vscode.SnippetString(fieldName);
+			const md = new vscode.MarkdownString();
+			md.appendCodeblock(own_to_im_converter.get_type_constructor(fieldType, true, hoverDepth, moduleManager.knownTypes, true, hoverShowOriginalTypeName), 'nianiolang');
+			item.documentation = md;
+			return item;
+		});
+	}
+
+
 	const publicMatch = text.match(/(?<!((?<!:):|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)::([a-zA-Z0-9_]*)$/);
 
-	if (publicMatch == null) {
+	if (!publicMatch) {
 		const privateMatch = text.match(/(?<!((?<!:):|->)[a-zA-Z0-9_]*)([a-zA-Z0-9_]+)$/);
 		if (!privateMatch) return [];
 
@@ -295,11 +318,11 @@ function provideHover(document, position) {
 				uri: document.uri.toString(),
 				position: { line: position.line, character: position.character }
 			}));
+			const type = own_to_im_converter.get_type_constructor(ov.get_value(token).type, true, hoverDepth, moduleManager.knownTypes, true, hoverShowOriginalTypeName);
 			const minus = hoverDepth > 0 ? `[ (-) ](command:nianiolang.hover.dec?${encodedArgs})` : ' (-) ';
-			const plus = `[ (+) ](command:nianiolang.hover.inc?${encodedArgs})`;
+			const plus = /(?<!\()@[a-zA-Z0-9_]+::[a-zA-Z0-9_]+(?![a-zA-Z0-9_]*\) )/.test(type) ? `[ (+) ](command:nianiolang.hover.inc?${encodedArgs})` : ' (+) ';
 			const showName = `[${hoverShowOriginalTypeName ? 'Hide' : 'Show'} original type names](command:nianiolang.hover.showOriginalTypeName?${encodedArgs})`;
 			md.appendMarkdown(`${minus} ${plus} Depth: ${hoverDepth} \t|\t ${showName}\n`);
-			const type = own_to_im_converter.get_type_constructor(ov.get_value(token).type, true, hoverDepth, moduleManager.knownTypes, true, hoverShowOriginalTypeName);
 			md.appendCodeblock(`type: ${type}`, 'nianiolang');
 		}
 		if (isDebug) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
@@ -456,6 +479,7 @@ function addFileWathers(context, codeLensProvider) {
 
 async function replaceRange(doc, range, newText) {
 	const edit = new vscode.WorkspaceEdit();
+	if (!(range instanceof vscode.Range)) range = new vscode.Range(range[0].line, range[0].character, range[1].line, range[1].character);
 	edit.replace(doc.uri, range, newText);
 	await vscode.workspace.applyEdit(edit);
 }
