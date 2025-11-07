@@ -608,19 +608,20 @@ function onDidChangeTextDocument(codeLensProvider) {
 async function onDidSaveTextDocument(document) {
 	if (document.eol !== vscode.EndOfLine.LF) await vscode.window.activeTextEditor?.edit((editBuilder) => editBuilder.setEndOfLine(vscode.EndOfLine.LF));
 	const cfg = vscode.workspace.getConfiguration('nianiolang');
-	if (cfg.get('onSave.removeUnusedModules')) await removeUnusedModules(document);
-	if (cfg.get('onSave.addMissingModules')) await addMissingModules(document);
-	if (cfg.get('onSave.fixModuleNames')) await fixModuleNames(document);
+	let didChange = false;
+	if (cfg.get('onSave.removeUnusedModules')) didChange ||= await removeUnusedModules(document);
+	if (cfg.get('onSave.addMissingModules')) didChange ||= await addMissingModules(document);
+	if (cfg.get('onSave.fixModuleNames')) didChange ||= await fixModuleNames(document);
 	const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
-	if (onSavePrettyPrint === 'Current module') await prettyPrintModule(document);
-	else if (onSavePrettyPrint === 'Current method') await prettyPrintMethod(document);
-	await diagnosticsManager.updateAllOpenTabs(document);
-	document.save();
+	if (onSavePrettyPrint === 'Current module') didChange ||= await prettyPrintModule(document);
+	else if (onSavePrettyPrint === 'Current method') didChange ||= await prettyPrintMethod(document);
+	// await diagnosticsManager.updateAllOpenTabs(document);
+	if (didChange) await document.save();
 }
 
 async function prettyPrintModule(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
-	if (!document || document.languageId !== 'nianiolang') return;
+	if (!document || document.languageId !== 'nianiolang') return false;
 	const lastLine = document.lineCount - 1;
 	const lastChar = document.lineAt(lastLine).text.length;
 	const fullRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lastLine, lastChar));
@@ -629,14 +630,15 @@ async function prettyPrintModule(doc) {
 	const out = moduleManager.prettyPrintModule(thisModuleName);
 	if (!out) return;
 	await replaceRange(document, fullRange, out);
+	return true;
 }
 
 async function prettyPrintMethod(doc, pos = null) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
-	if (!document || document.languageId !== 'nianiolang') return;
+	if (!document || document.languageId !== 'nianiolang') return false;
 	if (pos === null) {
 		const editor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString());
-		if (!editor) return null;
+		if (!editor) return false;
 		pos = editor.selection.active;
 	}
 	const filePath = document.fileName;
@@ -645,6 +647,7 @@ async function prettyPrintMethod(doc, pos = null) {
 	if (!obj) return;
 	const { range, out } = obj;
 	await replaceRange(document, range, out);
+	return true;
 }
 
 async function removeUnusedModules(document) {
@@ -657,6 +660,7 @@ async function removeUnusedModules(document) {
 		edit.delete(document.uri, range);
 	}
 	await vscode.workspace.applyEdit(edit);
+	return edit.size > 0;
 }
 
 async function addMissingModules(document) {
@@ -669,6 +673,7 @@ async function addMissingModules(document) {
 		modules[mod] = 1;
 	}
 	await addImports(Object.keys(modules), document.uri);
+	return Object.keys(modules).length > 0;
 	// await vscode.workspace.applyEdit(edit);
 }
 
@@ -681,6 +686,7 @@ async function fixModuleNames(document) {
 		edit.replace(document.uri, diagnostic.range, thisModuleName);
 	}
 	await vscode.workspace.applyEdit(edit);
+	return edit.size > 0;
 }
 
 async function refactorToJS(doc) {
