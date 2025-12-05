@@ -7,6 +7,7 @@ const ov = require('./nianioLibs/base/ov');
 const ptdPrinter = require('./ptd-printer');
 const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
 const patchGenerator = require('./patchGenerator');
+const dfile = require('./nianioLibs/printers/dfile');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
@@ -15,6 +16,8 @@ let hoverDepth = 0;
 let hoverShowOriginalTypeName = false;
 
 let isDebug = false;
+
+const isNotNl = (document, languageId = 'nianiolang', ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== languageId || path.extname(document.fileName) !== ext;
 
 const getCurrentDateTime = () => {
 	const now = new Date();
@@ -274,14 +277,28 @@ async function addImportAndTriggerSignatureHelp(moduleName, uri) {
 }
 
 class NianioLangCodeActionProvider {
-	provideCodeActions(document, range, context, token) {
+	provideCodeActions(doc, range, context, token) {
+		const document = doc ?? vscode.window.activeTextEditor?.document;
+		if (isNotNl(document)) return;
+
 		const moduleAction = new vscode.CodeAction('Pretty Print Module', vscode.CodeActionKind.Refactor);
 		moduleAction.command = { command: 'extension.prettyPrintModule', title: 'Pretty Print Module', arguments: [document] };
 
-		const methodAction = new vscode.CodeAction( 'Pretty Print Method', vscode.CodeActionKind.Refactor);
+		const methodAction = new vscode.CodeAction('Pretty Print Method', vscode.CodeActionKind.Refactor);
 		methodAction.command = { command: 'extension.prettyPrintMethod', title: 'Pretty Print Method', arguments: [document, range.start] };
 
 		return [moduleAction, methodAction];
+	}
+}
+class NianioLangGRCodeActionProvider {
+	provideCodeActions(doc, range, context, token) {
+		const document = doc ?? vscode.window.activeTextEditor?.document;
+		if (isNotNl(document, 'nianiolangGr', '.gr')) return;
+
+		const GRFileAction = new vscode.CodeAction('Pretty Print GR File', vscode.CodeActionKind.Refactor);
+		GRFileAction.command = { command: 'extension.prettyPrintGr', title: 'Pretty Print GR File', arguments: [document, range.start] };
+
+		return [GRFileAction];
 	}
 }
 
@@ -434,7 +451,7 @@ class ReferenceCounterCodeLensProvider {
 	}
 
 	async provideCodeLenses(document) {
-		if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return [];
+		if (isNotNl(document)) return [];
 		const filePath = document.uri.fsPath;
 		const moduleName = path.basename(filePath, path.extname(filePath));
 		const mod = moduleManager.getModule(moduleName);
@@ -482,6 +499,7 @@ async function replaceRange(doc, range, newText) {
 	if (!(range instanceof vscode.Range)) range = new vscode.Range(range[0].line, range[0].character, range[1].line, range[1].character);
 	edit.replace(doc.uri, range, newText);
 	await vscode.workspace.applyEdit(edit);
+	doc.save();
 }
 
 async function loadAllModules() {
@@ -535,12 +553,14 @@ async function activate(context) {
 	await loadAllModules();
 	addFileWathers(context, codeLensProvider);
 	const selector = { scheme: 'file', language: 'nianiolang' };
+	const selectorGr = { scheme: 'file', language: 'nianiolangGr' };
 
 	context.subscriptions.push(
 		vscode.languages.registerDefinitionProvider(selector, { provideDefinition }),
 		vscode.languages.registerCompletionItemProvider(selector, { provideCompletionItems }, ':'),
 		vscode.languages.registerSignatureHelpProvider(selector, { provideSignatureHelp }, '(', ','),
 		vscode.languages.registerCodeActionsProvider(selector, new NianioLangCodeActionProvider(), { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
+		vscode.languages.registerCodeActionsProvider(selectorGr, new NianioLangGRCodeActionProvider(), { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
 		vscode.languages.registerHoverProvider(selector, { provideHover }),
 		vscode.languages.registerRenameProvider(selector, { provideRenameEdits, prepareRename }),
 		vscode.languages.registerReferenceProvider(selector, { provideReferences }),
@@ -558,6 +578,7 @@ async function activate(context) {
 		vscode.commands.registerCommand('extension.updateAllDiagnostics', updateAllDiagnostics),
 		vscode.commands.registerCommand('extension.prettyPrintModule', prettyPrintModule),
 		vscode.commands.registerCommand('extension.prettyPrintMethod', prettyPrintMethod),
+		vscode.commands.registerCommand('extension.prettyPrintGr', prettyPrintGr),
 		vscode.commands.registerCommand('extension.refactorToJS', refactorToJS), 
 		vscode.commands.registerCommand('extension.showReferences', async (document, position) => {
 			vscode.commands.executeCommand('editor.action.showReferences', document.uri, position, await provideReferences(document, position));
@@ -606,22 +627,28 @@ function onDidChangeTextDocument(codeLensProvider) {
 }
 
 async function onDidSaveTextDocument(document) {
-	if (document.eol !== vscode.EndOfLine.LF) await vscode.window.activeTextEditor?.edit((editBuilder) => editBuilder.setEndOfLine(vscode.EndOfLine.LF));
-	const cfg = vscode.workspace.getConfiguration('nianiolang');
-	let didChange = false;
-	if (cfg.get('onSave.removeUnusedModules')) didChange ||= await removeUnusedModules(document);
-	if (cfg.get('onSave.addMissingModules')) didChange ||= await addMissingModules(document);
-	if (cfg.get('onSave.fixModuleNames')) didChange ||= await fixModuleNames(document);
-	const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
-	if (onSavePrettyPrint === 'Current module') didChange ||= await prettyPrintModule(document);
-	else if (onSavePrettyPrint === 'Current method') didChange ||= await prettyPrintMethod(document);
-	// await diagnosticsManager.updateAllOpenTabs(document);
-	if (didChange) await document.save();
+	if (!isNotNl(document)) {
+		if (document.eol !== vscode.EndOfLine.LF) await vscode.window.activeTextEditor?.edit((editBuilder) => editBuilder.setEndOfLine(vscode.EndOfLine.LF));
+		const cfg = vscode.workspace.getConfiguration('nianiolang');
+		let didChange = false;
+		if (cfg.get('onSave.removeUnusedModules')) didChange ||= await removeUnusedModules(document);
+		if (cfg.get('onSave.addMissingModules')) didChange ||= await addMissingModules(document);
+		if (cfg.get('onSave.fixModuleNames')) didChange ||= await fixModuleNames(document);
+		const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
+		if (onSavePrettyPrint === 'Current module') didChange ||= await prettyPrintModule(document);
+		else if (onSavePrettyPrint === 'Current method') didChange ||= await prettyPrintMethod(document);
+		// await diagnosticsManager.updateAllOpenTabs(document);
+		if (didChange) await document.save();
+	} else if (!isNotNl(document, 'nianiolangGr', '.gr')) {
+		const cfg = vscode.workspace.getConfiguration('nianiolang');
+		if (cfg.get('onSave.prettyPrintGr')) await prettyPrintGr(document);
+	}
+	
 }
 
 async function prettyPrintModule(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
-	if (!document || document.languageId !== 'nianiolang') return false;
+	if (isNotNl(document)) return false;
 	const lastLine = document.lineCount - 1;
 	const lastChar = document.lineAt(lastLine).text.length;
 	const fullRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lastLine, lastChar));
@@ -635,7 +662,7 @@ async function prettyPrintModule(doc) {
 
 async function prettyPrintMethod(doc, pos = null) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
-	if (!document || document.languageId !== 'nianiolang') return false;
+	if (isNotNl(document)) return false;
 	if (pos === null) {
 		const editor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString());
 		if (!editor) return false;
@@ -649,6 +676,22 @@ async function prettyPrintMethod(doc, pos = null) {
 	await replaceRange(document, range, out);
 	return true;
 }
+
+async function prettyPrintGr(doc) {
+	const document = doc ?? vscode.window.activeTextEditor?.document;
+	if (isNotNl(document, 'nianiolangGr', '.gr')) return false;
+	const lastLine = document.lineCount - 1;
+	const lastChar = document.lineAt(lastLine).text.length;
+	const fullRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lastLine, lastChar));
+	const result = dfile.try_sload(document.getText());
+	if (ov.is(result, 'err')) {
+		return false;
+	} 
+	const out = dfile.ssave(ov.as(result, 'ok'));
+	if (!out) return;
+	await replaceRange(document, fullRange, out);
+	return true;
+} 
 
 async function removeUnusedModules(document) {
 	// const document = await vscode.workspace.openTextDocument(uri);
@@ -691,7 +734,7 @@ async function fixModuleNames(document) {
 
 async function refactorToJS(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
-	if (!document || document.languageId !== 'nianiolang') return;
+	if (isNotNl(document)) return;
 	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
 	const content = moduleManager.refactorToJS(thisModuleName);
 	if (!content) return;

@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "1.2.9",
+	"version": "1.3.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -23,12 +23,19 @@
 			{
 				"id": "nianiolang",
 				"aliases": [ "NianioLang", "nianiolang", "nl" ],
-				"extensions": [ ".nl" ],
+				"extensions": [ ".gr" ],
 				"configuration": "./language-configuration.json"
+			},
+			{
+				"id": "nianiolangGr",
+				"aliases": [ "nianiolangGr", "gr" ],
+				"extensions": [ ".gr" ],
+				"configuration": "./language-configuration-gr.json"
 			}
 		],
 		"grammars": [
-			{ "language": "nianiolang", "scopeName": "source.nl", "path": "./syntaxes/nianiolang.tmLanguage.json" }
+			{ "language": "nianiolang", "scopeName": "source.nl", "path": "./syntaxes/nianiolang.tmLanguage.json" },
+			{ "language": "nianiolangGr", "scopeName": "source.gr", "path": "./syntaxes/nianiolang.tmLanguage.gr.json" }
 		],
 		"configuration": {
 			"properties": {
@@ -37,6 +44,11 @@
 					"enum": [ "none", "Current module", "Current method" ],
 					"default": "none",
 					"description": "Przy zapisie: formatowanie kodu NianioLang"
+				},
+				"nianiolang.onSave.prettyPrintGr": {
+					"type": "boolean",
+					"default": false,
+					"description": "Przy zapisie: formatowanie plików gr"
 				},
 				"nianiolang.onSave.removeUnusedModules": {
 					"type": "boolean",
@@ -133,13 +145,15 @@
 			{ "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
 			{ "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
 			{ "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
+			{ "command": "extension.prettyPrintGr", "title": "NianioLang: Pretty Print GR File" },
 			{ "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" },
 			{ "command": "nianiolang.generatePatchFromCommit", "title": "NianioLang: Generate Patch From Commit", "icon": "$(diff)" }
 		],
 		"menus": {
 			"editor/context": [
-				{ "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang", "group": "1_refactor" },
-				{ "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang", "group": "1_refactor" }
+				{ "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang && resourceExtname == .nl", "group": "1_refactor" },
+				{ "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang && resourceExtname == .nl", "group": "1_refactor" },
+				{ "command": "extension.prettyPrintGr", "when": "editorLangId == nianiolangGr && resourceExtname == .gr", "group": "1_refactor" }
 			],
 			"scm/historyItem/context": [
 				{ "command": "nianiolang.generatePatchFromCommit", "when": "scmProvider == git && !listMultiSelection", "group": "navigation@99" }

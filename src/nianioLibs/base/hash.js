@@ -1,3 +1,4 @@
+const ov = require('./ov');
 
 module.exports = {
 	size(h) { return Object.keys(h).length; },
@@ -8,5 +9,6 @@ module.exports = {
 	keys(h) { return Object.keys(h); },
 	values(h) { return Object.values(h); },
 	merge(h1, h2) { return { ...h1, ...h2 } },
-	add_all(h1, h2) { h1 = { ...h1, ...h2 } }, 
+	add_all(h1, h2) { h1 = { ...h1, ...h2 } },
+	is_hash(x) { typeof x === 'object' && !Array.isArray(x) && x !== null && !ov.is_variant(x) }
 }

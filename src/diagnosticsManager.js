@@ -6,6 +6,7 @@ const ov = require('./nianioLibs/base/ov');
 
 const positionToIndex = (line, col) => `${line}|${col}`;
 const indexToPosition = (index) => index.split('|').map(part => parseInt(part));
+const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
 
 async function updateAllOpenTabs(document) {
 	const uriSet = new Set([document?.uri.fsPath, null, undefined]);
@@ -17,7 +18,7 @@ async function updateAllOpenTabs(document) {
 			if (uriSet.has(fsPath)) continue;
 			const doc = vscode.workspace.textDocuments.find(d => d.fileName === fsPath)
 				?? await vscode.workspace.openTextDocument(tab.input.uri);
-			if (doc.languageId !== 'nianiolang' || doc.uri.scheme !== 'file') continue;
+			if (isNotNl(doc)) continue;
 			docs.push(doc);
 			const fileName = doc.fileName;
 			const moduleName = path.basename(fileName, path.extname(fileName));
@@ -29,7 +30,7 @@ async function updateAllOpenTabs(document) {
 }
 
 function updateDiagnostics(document, checkTypes = true) {
-	if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return;
+	if (isNotNl(document)) return;
 	const fileName = document.fileName;
 	const thisModuleName = path.basename(fileName, path.extname(fileName));
 	const thisModule = moduleManager.getModule(thisModuleName);

@@ -4,10 +4,12 @@ module.exports = {
 	remove(a, index) { a.splice(index, 1); }, 
 	insert(a, index, el) { a = [...a.slice(0, index), el, ...a.slice(index)]; },
 	push(a, el) { a.push(el); },
+	sort(a) { a.sort() },
 	add(a, el) { return [...a, el]; }, 
 	unshift(a, el) { a.unshift(el); }, 
 	len(a) { return a.length; },
 	is_empty(a) { return a.length === 0; },
 	pop(a) { a.pop(); },
-	append(a, el) { a.push(...el); },	
+	append(a, el) { a.push(...el); },
+	is_array(x) { return Array.isArray(x); }
 }

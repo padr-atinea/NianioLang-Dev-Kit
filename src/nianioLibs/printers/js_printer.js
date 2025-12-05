@@ -32,6 +32,8 @@ function print_module_to_str(mod) {
 
 	state_print(state, `\n\nmodule.exports = {\n\t${state.exports.join(',\n\t')}\n}`)
 
+	state.out = state.out.replaceAll('ov.mk_val(', 'ov.mk(');
+
 	return state.out;
 }
 
@@ -722,7 +724,7 @@ function print_val_no_context(val) {
 }
 
 function value_only_to_string(val) {
-	return print_val_no_context(val).replace(/\(|\[|\{|\)|\]|\}|\.|::| |,'/g, '_').replace(/__+/g, '_').replace(/_$/g, '');
+	return print_val_no_context(val).replace(/\(|\[|\{|\)|\]|\}|\.|::| |,|'|-/g, '_').replace(/__+/g, '_').replace(/_$/g, '');
 }
 
 function create_var_decl(name, value, type, tct_type = ov.mk('tct_im')) {

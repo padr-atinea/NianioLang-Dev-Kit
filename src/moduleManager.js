@@ -39,8 +39,10 @@ function checkFileIgnore(filePath) {
 const showDebugInfo = false;
 const showDebugHoverInfo = false;
 
+const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
+
 function updateModule(document, checkIgnore = false) {
-	if (document.languageId !== 'nianiolang' || document.uri.scheme !== 'file') return;
+	if (isNotNl(document)) return;
 	const filePath = document.uri.fsPath;
 	const text = document.getText();
 	if (checkIgnore && checkFileIgnore(filePath)) return;

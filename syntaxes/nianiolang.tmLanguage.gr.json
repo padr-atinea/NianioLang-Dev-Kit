@@ -1,0 +1,92 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "nianiolangGr",
+	"patterns": [
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#modules"
+		},
+		{
+			"include": "#functions"
+		},
+		{
+			"include": "#constants"
+		},
+		{
+			"include": "#fields"
+		},
+		{
+			"include": "#references"
+		}
+	],
+	"repository": {
+		"references": {
+			"patterns": [
+				{
+					"match": "(@[a-zA-Z:_0-9]+)",
+					"name": "variable.name"
+				}
+			]
+		},
+		"fields": {
+			"patterns": [
+				{
+					"match": "\b(=>)\b",
+					"name": "variable.name"
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"match": "((?<![a-zA-Z_])[0-9]+)",
+					"name": "constant.numeric"
+				},
+				{
+					"match": "\\b(true|false)\\b(?!\\s*[=-]>)",
+					"name": "constant.language"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.nianiolang",
+			"begin": "\"",
+			"end": "\"",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.string.begin.nianiolang"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.string.end.nianiolang"
+				}
+			},
+			"patterns": [
+				{
+					"match": "\\\\.",
+					"name": "constant.character.escape.nianiolang"
+				}
+			]
+		},
+		"modules": {
+			"patterns": [
+				{
+					"match": "\\b([a-zA-Z0-9_]+(?=::))\\b",
+					"name": "entity.name.class"
+				}
+			]
+		},
+		"functions": {
+			"patterns": [
+				{
+					"match": "\\b(?<!var\\s+)([a-zA-Z0-9_]+\\s*)\\(",
+					"name": "entity.name.function"
+				}
+			]
+		}
+	},
+	"scopeName": "source.gr"
+}

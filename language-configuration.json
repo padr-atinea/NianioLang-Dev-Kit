@@ -26,5 +26,11 @@
         ["(", ")"],
         ["\"", "\""],
         ["'", "'"]
-    ]
+    ],
+	"folding": {
+		"offSide": false
+	},
+	"[nianiolang]": {
+		"editor.foldingStrategy": "auto"
+	}
 }

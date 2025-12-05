@@ -1,6 +1,12 @@
+const meta = new WeakMap();
 
 module.exports = {
-	mk(element, value = null) { return { [element]: value } },
+	mk(element, value = null) { 
+		const obj = { [element]: value };
+		meta.set(obj, { tag: 'variant' });
+		return obj;
+	},
+	is_variant(obj) { return meta.has(obj) },
 	get_element(variant) { return Object.keys(variant)[0] },
 	get_value(variant) { return Object.values(variant)[0] },
 	has_value(variant) { return this.get_value(variant) !== null; },

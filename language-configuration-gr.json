@@ -1,0 +1,27 @@
+{
+    "comments": { },
+    "brackets": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"]
+    ],
+    "autoClosingPairs": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+        ["\"", "\""],
+        ["'", "'"]
+    ],
+    "surroundingPairs": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+        ["\"", "\""]
+    ],
+	"folding": {
+		"offSide": false
+	},
+	"[nianiolangGr]": {
+		"editor.foldingStrategy": "auto"
+	}
+}
