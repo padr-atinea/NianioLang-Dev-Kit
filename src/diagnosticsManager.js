@@ -36,8 +36,6 @@ function updateDiagnostics(document, checkTypes = true, msg = '') {
 	const thisModule = moduleManager.getModule(thisModuleName);
 	if (!thisModule) return;
 
-	console.log('updateDiagnostics', thisModuleName, thisModule.typesChecked);
-	
 	if (checkTypes && !thisModule.typesChecked) moduleManager.checkTypes([thisModuleName]);
 	const diagnosticsList = [...thisModule.staticDiagnostics, ...thisModule.dynamicDiagnostics].map(err => new vscode.Diagnostic(
 		new vscode.Range(

@@ -34,13 +34,16 @@ function print_module_to_str(mod) {
 	state_print(state, `\n\nmodule.exports = {\n\t${state.exports.join(',\n\t')}\n}`)
 
 	state.out = state.out
+		.replaceAll(`${mod.module_name}.`, '')
 		.replaceAll('ov.mk_val(', 'ov.mk(')
 		.replaceAll('DC(true)', 'true')
+		.replaceAll('DC({})', '{}')
+		.replaceAll('DC([])', '[]')
 		.replaceAll('DC(false)', 'false')
 		.replaceAll('\\', '\\\\')
 		.replaceAll('\\\\\'\'', '\\\'\'')
 		.replaceAll(/DC\((\d+)\)/g, '$1')
-		.replaceAll(/DC\(('[a-z_\\"\dA-Z]+')\)/g, '$1')
+		.replaceAll(/DC\(('[a-z_\\"\dA-Z]*')\)/g, '$1')
 		.replaceAll(/DC\((:[a-z_\dA-Z]+)\)/g, '$1');
 
 	return state.out;
@@ -413,6 +416,10 @@ function print_val(val, refs) {
 		return wprinter.build_pretty_bind(wprinter.build_sim(unary_op.op), print_val(unary_op.val, refs));
 	} else if (ov.is(val.value, 'fun_val')) {
 		const fun_val = ov.as(val.value, 'fun_val');
+		if (fun_val.module == 'ptd' && (fun_val.name == 'ensure' || fun_val.name == 'ensure_only_static_do_not_touch_without_permission')) {
+			return wprinter.build_pretty_l([print_fun_arg(fun_val.args[1], refs)]);
+		}
+
 		var fun_name = `${get_fun_label(fun_val.name, fun_val.module)}(`;
 		if (fun_val.args.length == 1) {
 			var arg = fun_val.args[0].val;
