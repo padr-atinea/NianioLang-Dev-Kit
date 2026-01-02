@@ -17,6 +17,7 @@ const libModules = {};
 const moduleCache = {};
 const referenceCache = {};
 const referenceBackCache = {};
+const usingsBackCashe = {};
 let ig = ignore();
 
 function updateIgnore() {
@@ -41,23 +42,15 @@ const showDebugHoverInfo = false;
 
 const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
 
-function updateModule(document, checkIgnore = false) {
+function updateModule(document) {
 	if (isNotNl(document)) return;
 	const filePath = document.uri.fsPath;
-	const text = document.getText();
-	if (checkIgnore && checkFileIgnore(filePath)) return;
+	if (checkFileIgnore(filePath)) return;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
+	const text = document.getText();
 	const methods = {};
 
-
-	if (Object.keys(referenceBackCache).includes(filePath)) {
-		for (const method of Object.keys(referenceBackCache[filePath])) {
-			if (Object.keys(referenceCache).includes(method) && Object.keys(referenceCache[method]).includes(filePath)) {
-				delete referenceCache[method][filePath];
-			}
-		}
-	}
-	referenceBackCache[filePath] = {};
+	clearReferenceCache(filePath);
 
 	(knownTypesInModule[thisModuleName] ?? []).forEach(name => delete knownTypes[name]);
 	knownTypesInModule[thisModuleName] = [];
@@ -72,28 +65,63 @@ function updateModule(document, checkIgnore = false) {
 			knownTypes[name] = ov.as(fun.defines_type, 'yes');
 			knownTypesInModule[thisModuleName].push(name);
 		}
-	}
+	};
 
 	const addReference = (methodName, startPos) => {
-		if (!(Object.keys(referenceCache).includes(methodName))) referenceCache[methodName] = {};
-		if (!(Object.keys(referenceCache[methodName]).includes(filePath))) referenceCache[methodName][filePath] = [];
+		referenceCache[methodName] ??= {};
+		referenceCache[methodName][filePath] ??= [];
 		referenceCache[methodName][filePath].push(startPos);
-
-		if (!(Object.keys(referenceBackCache[filePath]).includes(methodName))) referenceBackCache[filePath][methodName] = [];
+		referenceBackCache[filePath][methodName] ??= [];
 		referenceBackCache[filePath][methodName].push(startPos);
-	}
+	};
 
 	libModules[thisModuleName] = nparser.sparse(text, thisModuleName, addReference, addMethod);
+
+	updateUsingsBackCache(thisModuleName);
+
 	const errors = module_checker.check_module(libModules[thisModuleName], true, {});
 
 	const staticDiagnostics = [libModules[thisModuleName].errors, libModules[thisModuleName].warnings, errors.errors, errors.warnings].flat();
 	const dynamicDiagnostics = moduleCache[thisModuleName]?.dynamicDiagnostics ?? [];
 	const varPositions = moduleCache[thisModuleName]?.varPositions ?? {};
-	moduleCache[thisModuleName] = { filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] }
+
+	moduleCache[thisModuleName] = { typesChecked: false, filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] };
+
+	updateTypesCheckedByUsingsBackCache(thisModuleName);
 }
 
-function removeModule(filePath, checkIgnore = false) {
-	if (checkIgnore && checkFileIgnore(filePath)) return;
+function updateTypesCheckedByUsingsBackCache(moduleName, visited = {}) {
+	visited[moduleName] = 1;
+	if (!(moduleName in usingsBackCashe)) return;
+	for (const mod of Object.keys(usingsBackCashe[moduleName])) {
+		if (mod in moduleCache) moduleCache[mod].typesChecked = false;
+		if (!Object.hasOwn(visited, mod)) updateTypesCheckedByUsingsBackCache(mod, visited);
+	}
+}
+
+function clearReferenceCache(filePath) {
+	if (Object.keys(referenceBackCache).includes(filePath)) {
+		for (const method of Object.keys(referenceBackCache[filePath])) {
+			if (Object.keys(referenceCache).includes(method) && Object.keys(referenceCache[method]).includes(filePath)) {
+				delete referenceCache[method][filePath];
+			}
+		}
+	}
+	referenceBackCache[filePath] = {};
+}
+
+function updateUsingsBackCache(thisModuleName) {
+	for (const usingName of Object.keys(usingsBackCashe)) {
+		if (usingsBackCashe[usingName][thisModuleName]) delete usingsBackCashe[usingName][thisModuleName];
+	}
+	for (const [usingName, _] of Object.entries(libModules[thisModuleName].importsMap).filter((([_, val]) => val.usageCount > 0))) {
+		usingsBackCashe[usingName] ??= {};
+		usingsBackCashe[usingName][thisModuleName] = 1;
+	}
+}
+
+function removeModule(filePath) {
+	if (checkFileIgnore(filePath)) return;
 	const segments = filePath.split('/');
 	const fileName = segments[segments.length - 1];
 	const moduleName = fileName.split('.')[0];
@@ -157,7 +185,12 @@ function refactorToJS(moduleName) {
 
 function checkTypes(modules) {
 	const mods = {};
-	modules.forEach(mod => { if (mod in moduleCache) mods[mod] = moduleCache[mod].parsedModule; })
+	modules.forEach(mod => {
+		if (mod in moduleCache && !moduleCache[mod].typesChecked) {
+			mods[mod] = moduleCache[mod].parsedModule;
+			moduleCache[mod].typesChecked = true;
+		}
+	})
 	
 	const type_errors = type_checker.check_modules(mods, libModules, knownTypes);
 

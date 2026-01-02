@@ -287,7 +287,7 @@ class NianioLangCodeActionProvider {
 		const methodAction = new vscode.CodeAction('Pretty Print Method', vscode.CodeActionKind.Refactor);
 		methodAction.command = { command: 'extension.prettyPrintMethod', title: 'Pretty Print Method', arguments: [document, range.start] };
 
-		return [moduleAction, methodAction];
+		return [methodAction, moduleAction];
 	}
 }
 class NianioLangGRCodeActionProvider {
@@ -480,15 +480,15 @@ function addFileWathers(context, codeLensProvider) {
 
 	const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.nl');
 	fileWatcher.onDidCreate(uri => vscode.workspace.openTextDocument(uri).then(document => {
-		moduleManager.updateModule(document, true);
+		moduleManager.updateModule(document, true, 'fileWatcher.onDidCreate');
 		codeLensProvider._onDidChangeCodeLenses.fire();
 	}));
-	fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
-		moduleManager.updateModule(document, true);
-		codeLensProvider._onDidChangeCodeLenses.fire();
-	}));
+	// fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
+	// 	moduleManager.updateModule(document, true, 'fileWatcher.onDidChange');
+	// 	codeLensProvider._onDidChangeCodeLenses.fire();
+	// }));
 	fileWatcher.onDidDelete(uri => {
-		moduleManager.removeModule(uri.fsPath, true);
+		moduleManager.removeModule(uri.fsPath);
 		codeLensProvider._onDidChangeCodeLenses.fire();
 	});
 	context.subscriptions.push(fileWatcher);
@@ -512,7 +512,7 @@ async function loadAllModules() {
 		const files = await moduleManager.findFiles();
 		const total = files.length;
 		if (total === 0) return;
-		const concurrency = Math.min(8, Math.max(1, Math.floor(os.cpus().length / 2)));
+		const concurrency = Math.min(16, Math.max(1, Math.floor(os.cpus().length / 2)));
 		const increment = 100 / total;
 		let completed = 0;
 		const queue = files.slice();
@@ -524,7 +524,7 @@ async function loadAllModules() {
 				let thisModuleName = "";
 				try {
 					const document = await vscode.workspace.openTextDocument(uri);
-					moduleManager.updateModule(document);
+					moduleManager.updateModule(document, false);
 					thisModuleName = path.basename(uri.fsPath, path.extname(uri.fsPath));
 				} catch (e) {
 					if (!(e && e.message && e.message.startsWith("Canceled"))) console.error(e, e.stack);
@@ -584,12 +584,11 @@ async function activate(context) {
 			vscode.commands.executeCommand('editor.action.showReferences', document.uri, position, await provideReferences(document, position));
 		}),
 
-		// vscode.workspace.onDidOpenTextDocument(diagnosticsManager.updateDiagnostics),
 		// vscode.workspace.onDidRenameFiles(event => event.files.forEach(fixAllIncorretNamesWhenRename)),
 		vscode.workspace.onDidCloseTextDocument(diagnosticsManager.deleteDocument),
 		vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument(codeLensProvider)),
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
-		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
+		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document, true, 'onDidChangeVisibleTextEditors'))),
 
 		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchGenerator.generate), 
 	);
@@ -610,7 +609,7 @@ async function updateAllDiagnostics() {
 		progress.report({ increment: 0 });
 		for (let i = 0; i < files.length; i++) {
 			const document = await vscode.workspace.openTextDocument(files[i]);
-			diagnosticsManager.updateDiagnostics(document);
+			diagnosticsManager.updateDiagnostics(document, true, 'updateAllDiagnostics');
 			progress.report({ increment: i / files.length * 0.6, message: `${i} / ${files.length} (${Math.round(10000 * i / files.length) / 100}%)` });
 		}
 	});
@@ -620,9 +619,12 @@ async function updateAllDiagnostics() {
 
 function onDidChangeTextDocument(codeLensProvider) {
 	return event => {
-		moduleManager.updateModule(event.document, true);
+		if (event.contentChanges.length > 0) {
+			moduleManager.updateModule(event.document, true, 'onDidChangeTextDocument');
+		}
+		
 		codeLensProvider._onDidChangeCodeLenses.fire();
-		diagnosticsManager.updateDiagnostics(event.document);
+		diagnosticsManager.updateDiagnostics(event.document, true, 'onDidChangeTextDocument');
 	};
 }
 
