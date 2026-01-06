@@ -29,14 +29,13 @@ async function updateAllOpenTabs(document) {
 	docs.forEach(d => updateDiagnostics(d, false, 'updateAllOpenTabs'));
 }
 
-function updateDiagnostics(document, checkTypes = true, msg = '') {
+function updateDiagnostics(document) {
 	if (isNotNl(document)) return;
 	const fileName = document.fileName;
 	const thisModuleName = path.basename(fileName, path.extname(fileName));
 	const thisModule = moduleManager.getModule(thisModuleName);
 	if (!thisModule) return;
-
-	if (checkTypes && !thisModule.typesChecked) moduleManager.checkTypes([thisModuleName]);
+	if (!thisModule.typesChecked) moduleManager.checkTypes([thisModuleName]);
 	const diagnosticsList = [...thisModule.staticDiagnostics, ...thisModule.dynamicDiagnostics].map(err => new vscode.Diagnostic(
 		new vscode.Range(
 			Math.max(0, err.debug.begin.line - 1),
@@ -79,7 +78,7 @@ function updateDiagnostics(document, checkTypes = true, msg = '') {
 	
 	diagnostics.set(document.uri, diagnosticsList);
 	
-	vscode.window.showInformationMessage(`updateDiagnostics ${thisModuleName} ${msg}`);
+	// vscode.window.showInformationMessage(`updateDiagnostics ${thisModuleName} ${msg}`);
 }
 
 function deleteDocument(document) {

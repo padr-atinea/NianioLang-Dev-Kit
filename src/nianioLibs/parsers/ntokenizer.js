@@ -11,6 +11,9 @@ const is_hex_number = (char) => /^[0-9a-fA-F]$/.test(char);
 
 const is_token = (state) => ov.is(state.type, 'delimiter') || ov.is(state.type, 'operator') || ov.is(state.type, 'keyword');
 
+// const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = (obj) => structuredClone(obj);
+
 const keywords = {
 	use: null,
 	fora: null,
@@ -184,7 +187,7 @@ function get_place_ws(state) {
 	return state.place_ws;
 }
 function get_token(state) {
-	return JSON.parse(JSON.stringify(state.next_token));
+	return DC(state.next_token);
 }
 function info(state) {
 	return `token: '${get_token(state)}'

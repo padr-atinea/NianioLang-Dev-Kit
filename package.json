@@ -39,6 +39,12 @@
 		],
 		"configuration": {
 			"properties": {
+				"nianiolang.checkTypes": {
+					"type": "string",
+					"enum": [ "none", "On change and save", "On save" ],
+					"default": "On change and save",
+					"description": "Sprawdzanie typów (błędy oraz podpowiedzi)"
+				},
 				"nianiolang.onSave.prettyPrint": {
 					"type": "string",
 					"enum": [ "none", "Current module", "Current method" ],

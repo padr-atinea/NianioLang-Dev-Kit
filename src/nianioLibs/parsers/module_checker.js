@@ -1,6 +1,8 @@
 const ov = require('../base/ov');
 const ptd_parser = require('./ptd_parser');
 
+const DC = (obj) => JSON.parse(JSON.stringify(obj));
+// const DC = (obj) => structuredClone(obj);
 
 // function search_loops(modules) {
 // 	var checked = {};
@@ -132,7 +134,7 @@ function check_module(module, check_public_fun, functions) {
 	// 	if (!((Object.keys(imports).includes(name)))) add_error(state.errors, `module \'${name}\' not imported`, line);
 	// }
 	if (!check_public_fun) {
-		const copy = JSON.parse(JSON.stringify(func_used));
+		const copy = DC(func_used);
 		for (const [fun_key, none] of Object.entries(copy)) {
 			set_used_function(fun_key, func, func_used);
 		}
@@ -149,7 +151,7 @@ function check_module(module, check_public_fun, functions) {
 }
 
 // function check_used_functions(used_functions, functions,  modules, errors) {
-// 	var copy = JSON.parse(JSON.stringify(used_functions));
+// 	var copy = DC(used_functions);
 // 	for (const [fun_key, none] of Object.entries(copy)) {
 // 		if (!Object.keys(functions).includes(fun_key)) {
 // 			errors.warnings.push({message: 'public_functions dictionary key does not exist', line: 0, column: 0, module: 'public_functions.df', type: ov.mk('warning')});
@@ -615,13 +617,12 @@ function check_val(val, state) {
 }
 
 function save_block(state) {
-	return JSON.parse(JSON.stringify({ in_loop: state.in_loop, vars: state.vars }));
+	return DC({ in_loop: state.in_loop, vars: state.vars });
 }
 
 function load_block(state, prev, endPlace) {
 	state.in_loop = prev.in_loop;
-	const keys = JSON.parse(JSON.stringify(Object.keys(state.vars)));
-	for (const key of keys) {
+	for (const key of DC(Object.keys(state.vars))) {
 		if (!Object.keys(prev.vars).includes(key)) {
 			const info = state.vars[key];
 			info.endPlace = endPlace;

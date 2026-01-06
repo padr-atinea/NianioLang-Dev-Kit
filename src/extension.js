@@ -480,13 +480,16 @@ function addFileWathers(context, codeLensProvider) {
 
 	const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.nl');
 	fileWatcher.onDidCreate(uri => vscode.workspace.openTextDocument(uri).then(document => {
-		moduleManager.updateModule(document, true, 'fileWatcher.onDidCreate');
+		moduleManager.updateModule(document);
 		codeLensProvider._onDidChangeCodeLenses.fire();
 	}));
-	// fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
-	// 	moduleManager.updateModule(document, true, 'fileWatcher.onDidChange');
-	// 	codeLensProvider._onDidChangeCodeLenses.fire();
-	// }));
+	fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
+		moduleManager.updateModule(document);
+		if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') !== 'none') {
+			diagnosticsManager.updateDiagnostics(document);
+		}
+		codeLensProvider._onDidChangeCodeLenses.fire();
+	}));
 	fileWatcher.onDidDelete(uri => {
 		moduleManager.removeModule(uri.fsPath);
 		codeLensProvider._onDidChangeCodeLenses.fire();
@@ -524,7 +527,7 @@ async function loadAllModules() {
 				let thisModuleName = "";
 				try {
 					const document = await vscode.workspace.openTextDocument(uri);
-					moduleManager.updateModule(document, false);
+					moduleManager.updateModule(document);
 					thisModuleName = path.basename(uri.fsPath, path.extname(uri.fsPath));
 				} catch (e) {
 					if (!(e && e.message && e.message.startsWith("Canceled"))) console.error(e, e.stack);
@@ -588,7 +591,7 @@ async function activate(context) {
 		vscode.workspace.onDidCloseTextDocument(diagnosticsManager.deleteDocument),
 		vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument(codeLensProvider)),
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
-		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document, true, 'onDidChangeVisibleTextEditors'))),
+		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
 
 		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchGenerator.generate), 
 	);
@@ -609,7 +612,7 @@ async function updateAllDiagnostics() {
 		progress.report({ increment: 0 });
 		for (let i = 0; i < files.length; i++) {
 			const document = await vscode.workspace.openTextDocument(files[i]);
-			diagnosticsManager.updateDiagnostics(document, true, 'updateAllDiagnostics');
+			diagnosticsManager.updateDiagnostics(document);
 			progress.report({ increment: i / files.length * 0.6, message: `${i} / ${files.length} (${Math.round(10000 * i / files.length) / 100}%)` });
 		}
 	});
@@ -620,11 +623,12 @@ async function updateAllDiagnostics() {
 function onDidChangeTextDocument(codeLensProvider) {
 	return event => {
 		if (event.contentChanges.length > 0) {
-			moduleManager.updateModule(event.document, true, 'onDidChangeTextDocument');
+			moduleManager.updateModule(event.document);
 		}
-		
+		if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') == 'On change and save') {
+			diagnosticsManager.updateDiagnostics(event.document);
+		}
 		codeLensProvider._onDidChangeCodeLenses.fire();
-		diagnosticsManager.updateDiagnostics(event.document, true, 'onDidChangeTextDocument');
 	};
 }
 

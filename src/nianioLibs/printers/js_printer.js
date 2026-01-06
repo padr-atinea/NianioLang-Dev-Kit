@@ -111,7 +111,7 @@ function join_print_var_decl(aval, refs) {
 }
 
 function print_var_decl(var_decl, refs) {
-	var list = [wprinter.build_sim('let'), wprinter.get_sep()];
+	var list = [wprinter.build_sim((var_decl.isConst ?? false) ? 'let' : 'const'), wprinter.get_sep()];
 	// if (ov.is(var_decl.type, 'type')) {
 	// 	const type = ov.as(var_decl.type, 'type');
 	// 	list.push(...[
@@ -506,7 +506,7 @@ function print_loop_or_mod(state, short, header, cmd, arg_list, cond, ind, refs)
 
 function print_try_ensure(state, value, type, ind, refs) {
 	const print_if_err_cmd = (var_decl_name, value) => {
-		const var_decl = create_var_decl(var_decl_name, value);
+		const var_decl = create_var_decl(var_decl_name, value, { none: null }, true);
 		const if_err = cmd_({ if: {
 			cond: create_is_cond({ var: var_decl_name }, { hash_key: 'err' }),
 			if: cmd_(type === 'ensure' ? ({ die: [] }) : ({ return: vt_({ var: var_decl_name })})),
@@ -754,14 +754,15 @@ function value_only_to_string(val, refs) {
 	return print_val_no_context(val, refs).replace(/\(|\[|\{|\)|\]|\}|\.|::| |,|'|-/g, '_').replace(/__+/g, '_').replace(/_$/g, '');
 }
 
-function create_var_decl(name, value, type, tct_type = ov.mk('tct_im')) {
+function create_var_decl(name, value, type, isConst = false) {
 	return cmd_({ var_decl: {
 		name: name,
 		type: type,
-		tct_type: tct_type,
+		tct_type: ov.mk('tct_im'),
 		value: value,
 		place: { line: 16, position: 7 },
 		mod: { none: null },
+		isConst,
 	}});
 }
 
@@ -777,7 +778,8 @@ function get_var_from_case(variant_decl, match_var) {
 	return create_var_decl(
 		variant_decl.value.value.declaration.name,
 		create_ov_as(match_var, variant_decl.name),
-		{ none: null }
+		{ none: null },
+		true
 	);
 }
 

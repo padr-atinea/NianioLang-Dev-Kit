@@ -10,6 +10,9 @@ const ptd_system = require('./ptd_system');
 const own_to_im_converter = require('./own_to_im_converter');
 const nparser = require('../parsers/nparser');
 
+// const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = (obj) => structuredClone(obj);
+
 function type_to_ptd(type, errors) {
 	let match_type_5 = type;
 	if (ov.is(match_type_5, 'type')) {
@@ -193,7 +196,7 @@ function check_modules(modules, lib_modules, known_types) {
 			}
 			let new_module = create_own_convertions_module(own_conv, known_types, module_name);
 			let found = false;
-			let new_fun_def = JSON.parse(JSON.stringify(ast.fun_def));
+			let new_fun_def = DC(ast.fun_def);
 			for (const new_fun of new_module.fun_def) {
 				found = false;
 				for (let i = 0; i < array.len(ast.fun_def); i++) {
@@ -290,8 +293,8 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 	check_cmd(module.fun_def[i].cmd, modules, fun_vars, errors, known_types);
 	check_types_imported(modules.env.ret_type, modules, errors);
 	let fun_name = get_function_name(module.module_name, fun_def.name);
-	if (ov.is(fun_def.access, 'pub') && hash.has_key(get_special_functions(), fun_name)) {
-		let special_fun_def = get_special_functions()[fun_name];
+	if (ov.is(fun_def.access, 'pub') && hash.has_key(special_functions, fun_name)) {
+		let special_fun_def = special_functions[fun_name];
 		module.fun_def[i].ret_type.tct_type = special_fun_def.r;
 		for (let j = 0; j < array.len(module.fun_def[i].args); j++) {
 			module.fun_def[i].args[j].tct_type = special_fun_def.a[j].type;
@@ -385,31 +388,30 @@ function set_end_function(vars, errors, place) {
 function check_cmd(cmd, modules, b_vars, errors, known_types) {
 	errors.current_debug = cmd.debug;
 	let ret = {};
-	let vars = {...b_vars};
-	let match_cmd_cmd_0 = {...cmd.cmd};
+	let vars = DC(b_vars);
+	let match_cmd_cmd_0 = DC(cmd.cmd);
 	if (ov.is(match_cmd_cmd_0, 'if')) {
 		let as_if = ov.as(match_cmd_cmd_0, 'if');
-		let vars_op = vars;
+		let vars_op = DC(vars);
 		let if_cond_type = check_val(as_if.cond, modules, vars_op, errors, known_types);
 		if (!(ptd_system.is_condition_type(if_cond_type, modules, errors))) {
-			add_error(errors, 'if argument should be boolean instead of ' + get_print_tct_type_name(if_cond_type.type));
+			add_error(errors, `if argument should be boolean instead of ${get_print_tct_type_name(if_cond_type.type)}`);
 		}
 		check_cmd(as_if.if, modules, vars_op, errors, known_types);
 		for (let i = 0; i < array.len(as_if.elsif); i++) {
 			let elsif_s = as_if.elsif[i];
 			errors.current_debug = elsif_s.cmd.debug;
-			let elsif_cond = check_val(elsif_s.cond, modules, vars, errors, known_types);
+			const elsif_cond = check_val(elsif_s.cond, modules, vars, errors, known_types);
 			if (!(ptd_system.is_condition_type(elsif_cond, modules, errors))) {
-				add_error(errors, 'elsif condition should be boolean instead of ' +
-					get_print_tct_type_name(elsif_cond.type));
+				add_error(errors, `elsif condition should be boolean instead of ${get_print_tct_type_name(elsif_cond.type)}`);
 			}
-			let vars_cmd = {...vars};
+			const vars_cmd = DC(vars);
 			check_cmd(as_if.elsif[i].cmd, modules, vars_cmd, errors, known_types);
 			join_vars(vars_op, vars_cmd, modules, errors, known_types);
 		}
 		check_cmd(as_if.else, modules, vars, errors, known_types);
 		join_vars(vars, vars_op, modules, errors, known_types);
-		cmd.cmd = {...ov.mk('if', as_if)};
+		cmd.cmd = DC(ov.mk('if', as_if));
 	} else if (ov.is(match_cmd_cmd_0, 'for')) {
 		let as_for = ov.as(match_cmd_cmd_0, 'for');
 		let match_as_for_start_0 = as_for.start;
@@ -420,7 +422,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 			let var_decl = ov.as(match_as_for_start_0, 'var_decl');
 			add_var_to_vars(check_var_decl(var_decl, modules, vars, errors, known_types), vars, errors);
 		}
-		let vars_op = {...vars};
+		let vars_op = DC(vars);
 		if (!(ov.is(as_for.cond.value, 'nop'))) {
 			let for_cond = check_val(as_for.cond, modules, vars_op, errors, known_types);
 			if (!(ptd_system.is_condition_type(for_cond, modules, errors))) {
@@ -436,23 +438,23 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 			var_decl.tct_type = vars[var_decl.name].type;
 			as_for.start = ov.mk('var_decl', var_decl);
 		}
-		cmd.cmd = {...ov.mk('for', as_for)};
+		cmd.cmd = DC(ov.mk('for', as_for));
 	} else if (ov.is(match_cmd_cmd_0, 'fora')) {
 		let as_fora = ov.as(match_cmd_cmd_0, 'fora');
 		check_fora(as_fora, modules, vars, errors, known_types);
-		cmd.cmd = {...ov.mk('fora', as_fora)};
+		cmd.cmd = DC(ov.mk('fora', as_fora));
 	} else if (ov.is(match_cmd_cmd_0, 'forh')) {
 		let as_forh = ov.as(match_cmd_cmd_0, 'forh');
 		check_forh(as_forh, modules, vars, errors, known_types);
-		cmd.cmd = {...ov.mk('forh', as_forh)};
+		cmd.cmd = DC(ov.mk('forh', as_forh));
 	} else if (ov.is(match_cmd_cmd_0, 'loop')) {
 		let as_loop = ov.as(match_cmd_cmd_0, 'loop');
 		break_continue_block(as_loop, modules, vars, errors, known_types);
-		cmd.cmd = {...ov.mk('loop', as_loop)};
+		cmd.cmd = DC(ov.mk('loop', as_loop));
 	} else if (ov.is(match_cmd_cmd_0, 'rep')) {
 		let as_rep = ov.as(match_cmd_cmd_0, 'rep');
 		check_rep(as_rep, modules, vars, errors, known_types);
-		cmd.cmd = {...ov.mk('rep', as_rep)};
+		cmd.cmd = DC(ov.mk('rep', as_rep));
 	} else if (ov.is(match_cmd_cmd_0, 'while')) {
 		let as_while = ov.as(match_cmd_cmd_0, 'while');
 		check_while(as_while, modules, vars, errors, known_types);
@@ -467,7 +469,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 		}
 		check_cmd(if_mod.cmd, modules, vars_op, errors, known_types);
 		join_vars(vars, vars_op, modules, errors, known_types);
-		cmd.cmd = {...ov.mk('if_mod', if_mod)};
+		cmd.cmd = DC(ov.mk('if_mod', if_mod));
 	} else if (ov.is(match_cmd_cmd_0, 'unless_mod')) {
 		let unless_mod = ov.as(match_cmd_cmd_0, 'unless_mod');
 		let unless_cond_type = check_val(unless_mod.cond, modules, vars, errors, known_types);
@@ -475,17 +477,17 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 			add_error(errors, 'unless argument should be boolean type instead of ' +
 				get_print_tct_type_name(unless_cond_type.type));
 		}
-		let vars_op = {...vars};
+		let vars_op = DC(vars);
 		check_cmd(unless_mod.cmd, modules, vars_op, errors, known_types);
 		join_vars(vars, vars_op, modules, errors, known_types);
-		cmd.cmd = {...ov.mk('unless_mod', unless_mod)};
+		cmd.cmd = DC(ov.mk('unless_mod', unless_mod));
 	} else if (ov.is(match_cmd_cmd_0, 'break')) {
 		if (!modules.env.breaks.is) {
 			add_error(errors, 'command break can be used only in cyclic block');
 		} else {
 			let tmp = modules.env.breaks.vars;
 			join_vars(tmp, vars, modules, errors, known_types);
-			modules.env.breaks.vars = {...tmp};
+			modules.env.breaks.vars = DC(tmp);
 		}
 	} else if (ov.is(match_cmd_cmd_0, 'continue')) {
 		if (!modules.env.breaks.is) {
@@ -493,12 +495,12 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 		} else {
 			let tmp = modules.env.breaks.vars;
 			join_vars(tmp, vars, modules, errors, known_types);
-			modules.env.breaks.vars = {...tmp};
+			modules.env.breaks.vars = DC(tmp);
 		}
 	} else if (ov.is(match_cmd_cmd_0, 'match')) {
 		let as_match = ov.as(match_cmd_cmd_0, 'match');
 		vars = { ...check_match(as_match, modules, vars, errors, known_types) };
-		cmd.cmd = {...ov.mk('match', as_match)};
+		cmd.cmd = DC(ov.mk('match', as_match));
 	} else if (ov.is(match_cmd_cmd_0, 'value')) {
 		let val = ov.as(match_cmd_cmd_0, 'value');
 		check_val(val, modules, vars, errors, known_types);
@@ -535,7 +537,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 				block.cmds[i].cmd = ov.mk('var_decl', var_decl);
 			}
 		}
-		cmd.cmd = {...ov.mk('block', block)};
+		cmd.cmd = DC(ov.mk('block', block));
 	} else if (ov.is(match_cmd_cmd_0, 'die')) {
 		let as_die = ov.as(match_cmd_cmd_0, 'die');
 		for (const arg of as_die) {
@@ -558,11 +560,11 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 		if (ov.is(check_info, 'err')) {
 			add_error(errors, 'the return value have the wrong type: ' + get_print_check_info(check_info));
 		}
-		ret = {...vars_err_type.vars};
+		ret = DC(vars_err_type.vars);
 	} else if (ov.is(match_cmd_cmd_0, 'ensure')) {
 		let as_ensure = ov.as(match_cmd_cmd_0, 'ensure');
 		let vars_err_type = check_try_ensure(as_ensure, modules, vars, errors, known_types);
-		ret = {...vars_err_type.vars};
+		ret = DC(vars_err_type.vars);
 	} else if (ov.is(match_cmd_cmd_0, 'nop')) {
 	}
 	for (const [var_name, var_] of Object.entries(b_vars)) {
@@ -578,10 +580,10 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 
 function break_continue_block(cmd, modules, vars, errors, known_types) {
 	let old = { ...modules.env.breaks };
-	modules.env.breaks = { is: true, vars: {...vars} };
+	modules.env.breaks = { is: true, vars: DC(vars) };
 	check_cmd(cmd, modules, vars, errors, known_types);
 	join_vars(vars, modules.env.breaks.vars, modules, errors, known_types);
-	modules.env.breaks = {...old};
+	modules.env.breaks = DC(old);
 }
 
 function check_try_ensure(try_ensure, modules, vars, errors, known_types) {
@@ -650,7 +652,7 @@ function check_forh(as_forh, modules, vars, errors, known_types) {
 	} else {
 		hash_type.type = tct.tct_im();
 	}
-	let vars_op = {...vars};
+	let vars_op = DC(vars);
 	add_var_decl_with_type_and_check(as_forh.key, { type: tct.string(), src: ov.mk('speculation') }, vars_op, errors);
 	add_var_decl_with_type_and_check(as_forh.val, hash_type, vars_op, errors);
 	let var_tab = [];
@@ -683,7 +685,7 @@ function check_fora(as_fora, modules, vars, errors, known_types) {
 	} else {
 		fora_arr_type.type = tct.tct_im();
 	}
-	let vars_op = {...vars};
+	let vars_op = DC(vars);
 	add_var_decl_with_type_and_check(as_fora.iter, fora_arr_type, vars_op, errors);
 	break_continue_block(as_fora.cmd, modules, vars_op, errors, known_types);
 	join_vars(vars, vars_op, modules, errors, known_types);
@@ -694,7 +696,7 @@ function check_while(as_while, modules, vars, errors, known_types) {
 	if (!(ptd_system.is_condition_type(cond_type, modules, errors))) {
 		add_error(errors, 'while argument should be boolean type insteand of ' + get_print_tct_type_name(cond_type.type));
 	}
-	let vars_op = {...vars};
+	let vars_op = DC(vars);
 	break_continue_block(as_while.cmd, modules, vars_op, errors, known_types);
 	join_vars(vars, vars_op, modules, errors, known_types);
 }
@@ -704,7 +706,7 @@ function check_rep(as_rep, modules, vars, errors, known_types) {
 	if (!(ptd_system.is_accepted(count_type, tct.int(), modules, errors))) {
 		add_error(errors, 'rep argument should be a number instead of ' + get_print_tct_type_name(count_type.type));
 	}
-	let vars_op = {...vars};
+	let vars_op = DC(vars);
 	add_var_decl_with_type_and_check(as_rep.iter, { type: tct.int(), src: ov.mk('speculation') }, vars_op, errors);
 	break_continue_block(as_rep.cmd, modules, vars_op, errors, known_types);
 	join_vars(vars, vars_op, modules, errors, known_types);
@@ -750,12 +752,12 @@ function check_match(as_match, modules, vars, errors, known_types) {
 		}
 		type_is_match = true;
 	}
-	let vars_op = {...vars};
+	let vars_op = DC(vars);
 	let first = true;
 	let hash_b = {};
 	for (let i = 0; i < array.len(branches); i++) {
 		let branch = branches[i];
-		let vars_case = {...vars};
+		let vars_case = DC(vars);
 		let variant_name = branch.variant.name;
 		if ((hash.has_key(hash_b, variant_name))) {
 			add_error(errors, 'repeated the case name in match: ' + variant_name);
@@ -912,13 +914,8 @@ function check_val(val, modules, vars, errors, known_types) {
 		const place = placeToIndex(val.debug.begin);
 		const defPlace = placeToIndex(var_.defPlace);
 		errors.varPositions[errors.module][place] = { ref: var_.defPlace };
-
-		if (!(defPlace in errors.varPositions[errors.module])) {
-			errors.varPositions[errors.module][defPlace] = { def: var_ };
-		}
-		if (!('refs' in errors.varPositions[errors.module][defPlace].def)) {
-			errors.varPositions[errors.module][defPlace].def.refs = {};
-		}
+		errors.varPositions[errors.module][defPlace] ??= { def: var_ };
+		errors.varPositions[errors.module][defPlace].def.refs ??= {};
 		errors.varPositions[errors.module][defPlace].def.refs[place] = 1;
 
 		if (ov.is(match_var_referenced_by, 'variable')) {
@@ -1071,76 +1068,75 @@ function unary_op_dec_inc(type, err_str, modules, vars, errors, known_types) {
 	return set_type_to_lval(type, left_type, vtype, modules, vars, errors, known_types);
 }
 
-function get_special_functions() {
-	let f = {};
-	hash.set_value(f, 'ptd::ensure', {
+const special_functions = {
+	'ptd::ensure': {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	// hash::set_value(ref f, 'ptd::try_cast', {
-	// 		r => tct::var({ok => :tct_var_none, err => :tct_var_none}),
-	// 		a => [{mod => :none, type => tct::tct_im(), name => ''}, {mod => :none, type => tct::tct_im(), name => ''}]
-	// 	});
-	hash.set_value(f, 'ptd::ensure_only_static_do_not_touch_without_permission', {
+	},
+	'ptd::try_cast': {
+		r: tct.var_({ok: ov.mk('tct_var_none'), err: ov.mk('tct_var_none')}),
+		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: ''}]
+	},
+	'ptd::ensure_only_static_do_not_touch_without_permission':  {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	hash.set_value(f, 'ptd::int_to_string', { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] });
-	hash.set_value(f, 'array::push', {
+	},
+	'ptd::int_to_string':  { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] },
+	'array::push':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::insert', {
+	},
+	'array::insert':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::remove', {
+	},
+	'array::remove':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::subarray', {
+	},
+	'array::subarray':  {
 		r: tct.arr(tct.tct_im()),
 		a: [
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::join', {
+	},
+	'array::join':  {
 		r: tct.string(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.arr(tct.string()), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::append', {
+	},
+	'array::append':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::len', { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }] });
-	hash.set_value(f, 'array::sort', { r: tct.void_(), a: [{ mod: ov.mk('ref'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'array::pop', { r: tct.void_(), a: [{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' }] });
-	hash.set_value(f, 'array::equal', {
+	},
+	'array::len':  { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }] },
+	'array::sort':  { r: tct.void_(), a: [{ mod: ov.mk('ref'), type: tct.tct_im(), name: '' }] },
+	'array::pop':  { r: tct.void_(), a: [{ mod: ov.mk('ref'), type: tct.arr(tct.tct_im()), name: '' }] },
+	'array::equal':  {
 		r: tct.bool(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }
 		]
-	});
-	hash.set_value(f, 'array::part_sort', {
+	},
+	'array::part_sort':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' },
@@ -1148,226 +1144,224 @@ function get_special_functions() {
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' },
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }
 		]
-	});
-	hash.set_value(f, 'own_array::len', {
+	},
+	'own_array::len':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('ref'), type: tct.own_arr(tct.empty()), name: '' }]
-	});
-	hash.set_value(f, 'hash::set_value', {
+	},
+	'hash::set_value':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.hash(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }
 		]
-	});
-	hash.set_value(f, 'hash::get_value', {
+	},
+	'hash::get_value':  {
 		r: tct.tct_im(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' }
 		]
-	});
-	hash.set_value(f, 'hash::has_key', {
+	},
+	'hash::has_key':  {
 		r: tct.bool(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' }
 		]
-	});
-	hash.set_value(f, 'hash::delete', {
+	},
+	'hash::delete':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.hash(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' }
 		]
-	});
-	hash.set_value(f, 'hash::size', { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' }] });
-	hash.set_value(f, 'hash::values', {
+	},
+	'hash::size':  { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' }] },
+	'hash::values':  {
 		r: tct.arr(tct.tct_im()),
 		a: [{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' }]
-	});
-	hash.set_value(f, 'hash::keys', {
+	},
+	'hash::keys':  {
 		r: tct.arr(tct.string()),
 		a: [{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' }]
-	});
-	hash.set_value(f, 'hash::add_all', {
+	},
+	'hash::add_all':  {
 		r: tct.void_(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.hash(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.hash(tct.tct_im()), name: '' }
 		]
-	});
-	hash.set_value(f, 'ov::is', {
+	},
+	'ov::is':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.var_({}), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'ov::as', {
+	},
+	'ov::as':  {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.var_({}), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'dfile::ssave', { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'dfile::sload_with_type', {
+	},
+	'dfile::ssave':  { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'dfile::sload_with_type':  {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::fast_substr', {
+	},
+	'c_std_lib::fast_substr':  {
 		r: tct.string(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.arr(tct.string()), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::int_to_string', {
+	},
+	'c_std_lib::int_to_string':  {
 		r: tct.string(),
 		a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::string_to_int', {
+	},
+	'c_std_lib::string_to_int':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::try_string_to_int', {
+	},
+	'c_std_lib::try_string_to_int':  {
 		r: tct.var_({ ok: tct.int(), err: tct.string() }),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::string_chr', { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::string_ord', { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::string_length', {
+	},
+	'c_std_lib::string_chr':  { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] },
+	'c_std_lib::string_ord':  { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }] },
+	'c_std_lib::string_length':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::string_index', {
+	},
+	'c_std_lib::string_index':  {
 		r: tct.int(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::string_sub', {
+	},
+	'c_std_lib::string_sub':  {
 		r: tct.string(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::string_get_char_code', {
+	},
+	'c_std_lib::string_get_char_code':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.int(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::string_replace', {
+	},
+	'c_std_lib::string_replace':  {
 		r: tct.string(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' },
 			{ mod: ov.mk('none'), type: tct.string(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::string_compare', {
+	},
+	'c_std_lib::string_compare':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::array_sub', {
+	},
+	'c_std_lib::array_sub':  {
 		r: tct.arr(tct.tct_im()),
 		a: [
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::array_len', {
+	},
+	'c_std_lib::array_len':  {
 		r: tct.int(),
 		a: [{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::is_int', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::is_string', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::is_printable', {
+	},
+	'c_std_lib::is_int':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_std_lib::is_string':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_std_lib::is_printable':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::is_array', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::is_hash', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::is_variant', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_std_lib::string_compare', {
+	},
+	'c_std_lib::is_array':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_std_lib::is_hash':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_std_lib::is_variant':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_std_lib::string_compare':  {
 		r: tct.int(),
 		a: [
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' },
 			{ mod: ov.mk('none'), type: tct.arr(tct.tct_im()), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_std_lib::hash_has_key', {
+	},
+	'c_std_lib::hash_has_key':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	hash.set_value(f, 'c_std_lib::hash_size', { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::ov_is', {
+	},
+	'c_std_lib::hash_size':  { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::ov_is':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::priv_is', {
+	},
+	'c_rt_lib::priv_is':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::is_end_hash', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::get_ref_arr', {
+	},
+	'c_rt_lib::is_end_hash':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::get_ref_arr':  {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }, { mod: ov.mk('none'), type: tct.int(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::set_ref_arr', {
+	},
+	'c_rt_lib::set_ref_arr':  {
 		r: tct.tct_im(),
 		a: [
 			{ mod: ov.mk('ref'), type: tct.tct_im(), name: '' },
 			{ mod: ov.mk('none'), type: tct.int(), name: '' },
 			{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }
 		]
-	});
-	hash.set_value(f, 'c_rt_lib::array_len', { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_int', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_string', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_printable', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_array', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_hash', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::is_variant', { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::int_to_string', { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] });
-	hash.set_value(f, 'c_rt_lib::str_float_eq', {
+	},
+	'c_rt_lib::array_len':  { r: tct.int(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_int':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_string':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_printable':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_array':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_hash':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::is_variant':  { r: tct.bool(), a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }] },
+	'c_rt_lib::int_to_string':  { r: tct.string(), a: [{ mod: ov.mk('none'), type: tct.int(), name: '' }] },
+	'c_rt_lib::str_float_eq':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::str_float_ne', {
+	},
+	'c_rt_lib::str_float_ne':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::str_float_lt', {
+	},
+	'c_rt_lib::str_float_lt':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::str_float_gt', {
+	},
+	'c_rt_lib::str_float_gt':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::str_float_leq', {
+	},
+	'c_rt_lib::str_float_leq':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_rt_lib::str_float_geq', {
+	},
+	'c_rt_lib::str_float_geq':  {
 		r: tct.bool(),
 		a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }, { mod: ov.mk('none'), type: tct.string(), name: '' }]
-	});
-	hash.set_value(f, 'c_olympic_io::print', { r: tct.void_(), a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }] });
-	hash.set_value(f, 'c_olympic_io::readln', { r: tct.string(), a: [] });
-	hash.set_value(f, 'c_olympic_io::read_int', { r: tct.int(), a: [] });
-	hash.set_value(f, 'c_olympic_io::read_char', { r: tct.string(), a: [] });
-	hash.set_value(f, 'c_singleton::sigleton_do_not_use_without_approval', {
+	},
+	'c_olympic_io::print':  { r: tct.void_(), a: [{ mod: ov.mk('none'), type: tct.string(), name: '' }] },
+	'c_olympic_io::readln':  { r: tct.string(), a: [] },
+	'c_olympic_io::read_int':  { r: tct.int(), a: [] },
+	'c_olympic_io::read_char':  { r: tct.string(), a: [] },
+	'c_singleton::sigleton_do_not_use_without_approval':  {
 		r: tct.tct_im(),
 		a: [{ mod: ov.mk('none'), type: tct.tct_im(), name: '' }]
-	});
-	return f;
-}
+	}
+};
 
 function get_special_function_def(module, name) {
-	let f = get_special_functions();
 	let ret = {
 		cmd: { debug: nast.empty_debug(), cmd: ov.mk('nop') },
 		is_type: ov.mk('no'),
@@ -1379,8 +1373,8 @@ function get_special_function_def(module, name) {
 		ret_type: tct.tct_im()
 	};
 	name = get_function_name(module, name);
-	if (hash.has_key(f, name)) {
-		let t = hash.get_value(f, name);
+	if (hash.has_key(special_functions, name)) {
+		let t = hash.get_value(special_functions, name);
 		ret.args = t.a;
 		ret.ret_type = t.r;
 	} else {
@@ -2131,11 +2125,9 @@ function check_var_decl_try(var_decl, is_try, modules, vars, errors, known_types
 const placeToIndex = (place) => `${place.line}|${place.position}`;
 
 function add_var_to_vars(var_, vars, errors) {
-	if (var_.name === '__END') {
-
-	} else {
-		if (!(errors.module in errors.varPositions)) errors.varPositions[errors.module] = {};
+	if (var_.name !== '__END') {
 		const varPos = placeToIndex(var_.defPlace);
+		errors.varPositions[errors.module] ??= {};
 		errors.varPositions[errors.module][varPos] = { def: var_ };
 	}
 	hash.set_value(vars, var_.name, var_);
@@ -2231,7 +2223,7 @@ function add_warning(errors, msg) {
 }
 
 function fill_value_types_in_cmd(cmd, b_vars, modules, errors, known_types, anon_own_conv, curr_module_name) {
-	let vars = {...b_vars};
+	let vars = DC(b_vars);
 	let ret = {};
 	let match_cmd_cmd_1 = cmd.cmd;
 	if (ov.is(match_cmd_cmd_1, 'if')) {
@@ -2575,8 +2567,8 @@ function fill_fun_val_type(fun_val, vars, modules, errors, known_types, anon_own
 	for (let i = 0; i < array.len(as_fun.args); i++) {
 		fill_value_types(as_fun.args[i].val, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 	}
-	if (hash.has_key(get_special_functions(), fun_name)) {
-		let fun_def = get_special_functions()[fun_name];
+	if (hash.has_key(special_functions, fun_name)) {
+		let fun_def = special_functions[fun_name];
 		fun_val.type = fun_def.r;
 		for (let i = 0; i < array.len(as_fun.args); i++) {
 			as_fun.args[i].expected_type = fun_def.a[i].type;
@@ -2625,7 +2617,7 @@ function fill_fun_val_type(fun_val, vars, modules, errors, known_types, anon_own
 
 function fill_try_ensure_type(try_ensure, vars, modules, errors, known_types, anon_own_conv, curr_module_name) {
 	let ret = {};
-	let match_try_ensure_1 = {...try_ensure};
+	let match_try_ensure_1 = DC(try_ensure);
 	if (ov.is(match_try_ensure_1, 'decl')) {
 		let decl = ov.as(match_try_ensure_1, 'decl');
 		let match_decl_value = decl.value;

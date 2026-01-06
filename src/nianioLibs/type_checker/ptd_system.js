@@ -5,6 +5,9 @@ const string = require('../base/string');
 const array = require('../base/array');
 const ptd_parser = require('../parsers/ptd_parser');
 
+// const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = (obj) => structuredClone(obj);
+
 function add_error(errors, msg) {
 	array.push(errors.errors[errors.module], {
 		message: msg,
@@ -22,7 +25,7 @@ function is_equal(a, b) {
 	if (ov.get_element(a) !== ov.get_element(b)) {
 		return false;
 	}
-	let match_a = JSON.parse(JSON.stringify(a));
+	let match_a = DC(a);
 	if (ov.is(match_a, 'tct_im')) {
 	} else if (ov.is(match_a, 'tct_arr')) {
 		let arr_type = ov.as(match_a, 'tct_arr');
@@ -286,19 +289,19 @@ function cross_type_(a, b, ref_inf, modules, errors, known_types) {
 		}
 	} else if (ov.is(match_a_0, 'tct_var')) {
 		let variants = ov.as(match_a_0, 'tct_var');
-		let fin = JSON.parse(JSON.stringify(variants));
+		let fin = DC(variants);
 		if (ov.is(b, 'tct_var')) {
 			let ret = ov.as(b, 'tct_var');
 			for (const [field, type] of Object.entries(variants)) {
 				if (hash.has_key(ret, field)) {
-					let t2 = hash.get_value(ret, field);
-					let match_t2 = t2;
+					const match_t2 = DC(hash.get_value(ret, field));
 					if (ov.is(match_t2, 'with_param')) {
 						let typ = ov.as(match_t2, 'with_param');
 						let match_type_10 = type;
 						if (ov.is(match_type_10, 'with_param')) {
-							let typ2 = ov.as(match_type_10, 'with_param');
-							hash.set_value(fin, field, cross_type_(typ, typ2, ref_inf, modules, errors, known_types));
+							const typ2 = ov.as(match_type_10, 'with_param');
+							const typ3 = cross_type_(typ, typ2, ref_inf, modules, errors, known_types);
+							hash.set_value(fin, field, typ3);
 						} else if (ov.is(match_type_10, 'no_param')) {
 							return ov.mk('tct_im');
 						}
@@ -341,7 +344,7 @@ function cross_type_(a, b, ref_inf, modules, errors, known_types) {
 		}
 	} else if (ov.is(match_a_0, 'tct_own_var')) {
 		let variants = ov.as(match_a_0, 'tct_own_var');
-		let fin = JSON.parse(JSON.stringify(variants));
+		let fin = DC(variants);
 		let inner_type;
 		if (ov.is(b, 'tct_own_var')) {
 			inner_type = ov.as(b, 'tct_own_var');
@@ -351,7 +354,7 @@ function cross_type_(a, b, ref_inf, modules, errors, known_types) {
 			add_error(errors, 'incompatible own types');
 			return ov.mk('tct_im');
 		}
-		let ret = JSON.parse(JSON.stringify(inner_type));
+		let ret = DC(inner_type);
 		for (const [field, type] of Object.entries(variants)) {
 			if (hash.has_key(ret, field)) {
 				let t2 = hash.get_value(ret, field);
@@ -523,7 +526,7 @@ function check_assignment_info(to, from, ref_inf, type_src, modules, errors) {
 		add_error(errors, 'can\'t assignment this two type');
 		return mk_err(to, from);
 	}
-	let match_to = JSON.parse(JSON.stringify(to));
+	let match_to = DC(to);
 	if (ov.is(match_to, 'tct_im')) {
 		return ov.mk('ok');
 	} else if (ov.is(match_to, 'tct_arr')) {
@@ -738,7 +741,7 @@ function check_assignment_info(to, from, ref_inf, type_src, modules, errors) {
 			let to_type = hash.get_value(vars, name);
 			let match_from_type_5 = from_type;
 			if (ov.is(match_from_type_5, 'no_param')) {
-				let match_to_type = JSON.parse(JSON.stringify(to_type));
+				let match_to_type = DC(to_type);
 				if (ov.is(match_to_type, 'no_param')) {
 					continue;
 				} else if (ov.is(match_to_type, 'with_param')) {
@@ -861,7 +864,7 @@ function walk_on_type(type, operation, ref_inf, modules, errors) {
 			return;
 		}
 		function_ = function_[0];
-		let match_function_ref_types = JSON.parse(JSON.stringify(function_.ref_types));
+		let match_function_ref_types = DC(function_.ref_types);
 		if (ov.is(match_function_ref_types, 'yes')) {
 			let typ = ov.as(match_function_ref_types, 'yes');
 			for (const type_name2 of typ) {
@@ -975,9 +978,9 @@ function get_ref_type(type_name, modules, errors) {
 	if (array.len(functions) == 0) {
 		return tct.tct_im();
 	}
-	let function_ = JSON.parse(JSON.stringify(functions[0]));
+	let function_ = DC(functions[0]);
 	let module_st = hash.get_value(modules.funs, function_.module);
-	let match_function_is_type = JSON.parse(JSON.stringify(function_.is_type));
+	let match_function_is_type = DC(function_.is_type);
 	if (ov.is(match_function_is_type, 'yes')) {
 		let typ = ov.as(match_function_is_type, 'yes');
 		return typ;

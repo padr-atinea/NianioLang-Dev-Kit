@@ -1,5 +1,8 @@
 const ov = require('./ov');
 
+// const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = (obj) => structuredClone(obj);
+
 const ops = {
 	ternary: {
 		'?': { prec: 880, assoc: ov.mk('right') },
@@ -54,7 +57,7 @@ const char_oper = [...char_opers[2], ...char_opers[1], ...char_opers[0]];
 
 
 function empty_debug() {
-	return JSON.parse(JSON.stringify({ begin: { line: 1, position: -1 }, end: { line: 1, position: -1 } }));
+	return DC({ begin: { line: 1, position: -1 }, end: { line: 1, position: -1 } });
 }
 
 module.exports = { ops, lett_oper, char_oper, empty_debug }
