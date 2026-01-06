@@ -10,8 +10,8 @@ const ptd_system = require('./ptd_system');
 const own_to_im_converter = require('./own_to_im_converter');
 const nparser = require('../parsers/nparser');
 
-// const DC = (obj) => JSON.parse(JSON.stringify(obj));
-const DC = (obj) => structuredClone(obj);
+const DC = (obj) => JSON.parse(JSON.stringify(obj));
+// const DC = (obj) => structuredClone(obj);
 
 function type_to_ptd(type, errors) {
 	let match_type_5 = type;

@@ -216,7 +216,8 @@ function is_cycle_ref(a, b, ref_inf, is_cross, deleted, modules, errors) {
 		}
 	}
 	let j = 0;
-	for (let i = 0; i < array.len(arr_to) - 1 && array.len(arr_from) > 0; ++i) {
+	for (let i = 0; i < array.len(arr_to) && array.len(arr_from) > 0; ++i) {
+	// for (let i = 0; i < array.len(arr_to) - 1 && array.len(arr_from) > 0; ++i) {
 		while (arr_from[j] < arr_to[i]) {
 			++j;
 		}
