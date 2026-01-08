@@ -180,7 +180,7 @@ function getFunctionFromPos(parsedModule, pos) {
 function refactorToJS(moduleName) {
 	const module = getModule(moduleName);
 	if (!module || module.parsedModule.errors.length > 0) return null;
-	return js_printer.print_module_to_str(module.parsedModule);
+	return js_printer.print_module_to_str(module.parsedModule, module.varPositions);
 }
 
 function checkTypes(modules) {
