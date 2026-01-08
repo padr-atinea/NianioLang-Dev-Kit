@@ -6,7 +6,7 @@ const diagnosticsManager = require('./diagnosticsManager');
 const ov = require('./nianioLibs/base/ov');
 const ptdPrinter = require('./ptd-printer');
 const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
-const patchGenerator = require('./patchGenerator');
+const patchManager = require('./patchManager');
 const dfile = require('./nianioLibs/printers/dfile');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
@@ -593,7 +593,8 @@ async function activate(context) {
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
 		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
 
-		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchGenerator.generate), 
+		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchManager.generatePatchFromCommit),
+		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch), 
 	);
 
 	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();

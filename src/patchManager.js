@@ -142,7 +142,7 @@ async function generatePatch(commitish) {
 	await vscode.window.showTextDocument(target, { preview: false });
 }
 
-async function generate(...args) {
+async function generatePatchFromCommit(...args) {
 	try {
 		const guess = args && args.length > 1 ? args[1].id : undefined;
 		let commit = guess;
@@ -158,4 +158,52 @@ async function generate(...args) {
 	}
 }
 
-module.exports = { generate };
+async function applyPatch() {
+	try {
+		const folders = vscode.workspace.workspaceFolders;
+		if (!folders || folders.length === 0) throw new Error("No workspace.");
+		const root = folders[0].uri.fsPath;
+		const pick = await vscode.window.showOpenDialog({
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			filters: { Patch: ["patch", "diff", "txt"] },
+			openLabel: "Apply patch",
+		});
+		if (!pick || pick.length === 0) return;
+		const patchUri = pick[0];
+		const patchPath = patchUri.fsPath;
+		const patchBuf = await vscode.workspace.fs.readFile(patchUri);
+		const patchText = Buffer.from(patchBuf).toString("utf8");
+		const normalized = patchText
+			.split(/\r?\n/)
+			.filter(l => {
+				if (l.startsWith("#")) return false;          // your stats header
+				if (l.trim() === "###") return false;         // separator
+				if (/^diff\s+-x\b/.test(l)) return false;     // your "diff -x ... -Naur ..." line
+				return true;
+			})
+			.map(line => (line.startsWith('+++ ') || line.startsWith('--- ')) ? line.split('\t')[0] : line)
+			.join("\n");
+
+		await runGit(["rev-parse", "--show-toplevel"], root);
+		
+		const tmpPath = path.join(os.tmpdir(), `nianiolang_apply_${Date.now()}.patch`);
+		await fs.writeFile(tmpPath, normalized, "utf8");
+		try {
+			await runGit(["apply", "--whitespace=nowarn", tmpPath], root);
+		} catch (e) {
+			await fs.rm(tmpPath);
+			throw e;
+		}
+		await fs.rm(tmpPath);
+
+		vscode.window.showInformationMessage(`Nianiolang: Patch applied ${patchPath.split('\\').at(-1)}`);
+	} catch (e) {
+		const msg = e && e.message ? e.message : String(e);
+		vscode.window.showErrorMessage("Nianiolang: Apply Patch failed: " + msg);
+	}
+}
+
+
+module.exports = { generatePatchFromCommit, applyPatch };
