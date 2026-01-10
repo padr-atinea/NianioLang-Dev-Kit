@@ -1,11 +1,17 @@
 const ov = require('../base/ov');
 
+let line_width = 120;
+
 function get_tab_size() {
 	return 4;
 }
 
+function set_line_width(val) {
+	line_width = val;
+}
+
 function get_line_width() {
-	return 120;
+	return line_width;
 }
 
 function get_sep() {
@@ -243,4 +249,5 @@ module.exports = {
 	build_pretty_a,
 	get_sep,
 	pind,
+	set_line_width,
 };

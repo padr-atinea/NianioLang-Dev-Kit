@@ -13,6 +13,12 @@ const nparser = require('../parsers/nparser');
 const DC = (obj) => JSON.parse(JSON.stringify(obj));
 // const DC = (obj) => structuredClone(obj);
 
+const ObjectAssignInPlace = (objA, objB) =>
+	Object.keys(objA).forEach(key => delete objA[key]) ??
+	Object.keys(objB).forEach(key => objA[key] = objB[key]);
+
+const ArrayAssignInPlace = (objA, arrB) => { while (objA.pop()); objA.push(...arrB); };
+
 function type_to_ptd(type, errors) {
 	let match_type_5 = type;
 	if (ov.is(match_type_5, 'type')) {
@@ -249,12 +255,12 @@ function get_own_conv_defs(defs, types, known_types) {
 function create_own_convertions_module(own_conv, known_types, moudule_name) {
 	let own_conv_defs = {};
 	get_own_conv_defs(own_conv_defs, own_conv, known_types);
-	let new_code = '';
+	let new_code = 'use own; use ptd;';
 	for (const [name, body] of Object.entries(own_conv_defs)) {
 		new_code += body + string.lf();
 	}
 	let new_module = nparser.sparse(new_code, moudule_name);
-	if (new_module.errors.length > 0) {
+	if (new_module.errors.filter(err => !/module '[a-z_]+' not imported/.test(err.message)).length > 0) {
 		throw new Error();
 	}
 
@@ -366,8 +372,7 @@ function join_vars(vars, vars_op, modules, errors, known_types) {
 		return;
 	}
 	if (hash.has_key(vars, '__END')) {
-		Object.keys(vars).forEach(v => delete vars[v]);
-		Object.keys(vars_op).forEach(v => vars[v] = vars_op[v]);
+		ObjectAssignInPlace(vars, vars_op);
 		return;
 	}
 	for (const [var_name, var_] of Object.entries(vars)) {
@@ -813,8 +818,7 @@ function check_match(as_match, modules, vars, errors, known_types) {
 			vars_case[ov.as(as_match.val.value, 'var')].referenced_by = ov.mk('none');
 		}
 		if (first) {
-			Object.keys(vars_op).forEach(v => delete vars_op[v]);
-			Object.keys(vars_case).forEach(v => vars_op[v] = vars_case[v]);
+			ObjectAssignInPlace(vars_op, vars_case);
 		} else {
 			join_vars(vars_op, vars_case, modules, errors, known_types);
 		}
@@ -2630,24 +2634,16 @@ function fill_try_ensure_type(try_ensure, vars, modules, errors, known_types, an
 		}
 		ret[decl.name] = new_var_decl(decl.name, decl.tct_type, decl.place, false);
 
-		const a = ov.mk('decl', decl);
-		Object.keys(try_ensure).forEach(v => delete try_ensure[v]);
-		Object.keys(a).forEach(v => try_ensure[v] = a[v]);
+		ObjectAssignInPlace(try_ensure, ov.mk('decl', decl));
 	} else if (ov.is(match_try_ensure_1, 'lval')) {
 		let lval = ov.as(match_try_ensure_1, 'lval');
 		fill_value_types(lval.left, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
 		fill_value_types(lval.right, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
-		
-		const a = ov.mk('lval', lval);
-		Object.keys(try_ensure).forEach(v => delete try_ensure[v]);
-		Object.keys(a).forEach(v => try_ensure[v] = a[v]);
+		ObjectAssignInPlace(try_ensure, ov.mk('lval', lval));
 	} else if (ov.is(match_try_ensure_1, 'expr')) {
 		let expr = ov.as(match_try_ensure_1, 'expr');
 		fill_value_types(expr, vars, modules, errors, known_types, anon_own_conv, curr_module_name);
-		
-		const a = ov.mk('expr', expr);
-		Object.keys(try_ensure).forEach(v => delete try_ensure[v]);
-		Object.keys(a).forEach(v => try_ensure[v] = a[v]);
+		ObjectAssignInPlace(try_ensure, ov.mk('expr', expr));
 	}
 	return ret;
 }
