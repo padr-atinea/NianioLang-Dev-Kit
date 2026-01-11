@@ -244,7 +244,7 @@ function cross_type_(a, b, ref_inf, /*ref*/ ref_modules, /*ref*/ ref_errors, kno
 	if (is_cycle_ref(/*ref*/ a, /*ref*/ b, /*ref*/ ref_inf, true, false, /*ref*/ ref_modules, /*ref*/ ref_errors)) {
 		return a;
 	}
-	if (ref_inf.level == 200) {
+	if (ref_inf.level == 300) {
 		add_error(/*ref*/ ref_errors, 'cannnot assign these two types to one variable - types merge failed.');
 		return ov.mk('tct_im');
 	}
@@ -479,7 +479,7 @@ function cross_type_(a, b, ref_inf, /*ref*/ ref_modules, /*ref*/ ref_errors, kno
 		}
 		if (ov.is(b, 'tct_rec')) {
 			let sum = rec_to_hash(b, ref_inf, /*ref*/ ref_modules, /*ref*/ ref_errors, known_types);
-			return tct.hash(cross_type_(hash, sum, /*ref*/ ref_modules, /*ref*/ ref_errors, known_types));
+			return tct.hash(cross_type(hash, sum, /*ref*/ ref_modules, /*ref*/ ref_errors, known_types));
 		}
 	} else if (ov.is(match_a_0, 'tct_own_hash')) {
 		const hash = ov.as(match_a_0, 'tct_own_hash');
@@ -528,7 +528,7 @@ function check_assignment_info(to, from, ref_inf, type_src, /*ref*/ ref_modules,
 	if (is_cycle_ref(/*ref*/ to, /*ref*/ from, /*ref*/ ref_inf, false, is_known(type_src), /*ref*/ ref_modules, /*ref*/ ref_errors)) {
 		return ov.mk('ok');
 	}
-	if (ref_inf.level == 200) {
+	if (ref_inf.level == 300) {
 		add_error(/*ref*/ ref_errors, 'can\'t assignment this two type');
 		return mk_err(to, from);
 	}

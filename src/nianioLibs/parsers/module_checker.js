@@ -603,7 +603,7 @@ function check_val(val, state) {
 				check_val(fun_val_arg.val, state);
 			} else if (ov.is(fun_val_arg.mod, 'ref')) {
 				check_lvalue(fun_val_arg.val, state);
-				if (ov.is(fun_val_arg.val.value, 'var') && Object.keys(ov.as(fun_val_arg.val.value, 'var')).includes(state.vars)) {
+				if (ov.is(fun_val_arg.val.value, 'var') && Object.keys(state.vars).includes(ov.as(fun_val_arg.val.value, 'var'))) {
 					state.vars[ov.as(fun_val_arg.val.value, 'var')].initialized = true;
 				}
 			}

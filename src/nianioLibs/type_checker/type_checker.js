@@ -184,41 +184,42 @@ function prepare_def_fun(modules, errors) {
 // }
 
 function check_modules(modules, lib_modules, known_types) {
+	modules = DC(modules);
 	let errors = { errors: { '': [] }, warnings: { '': [] }, module: '', current_debug: nast.empty_debug(), varPositions: {} };
 	let deref = { delete: [], create: [] };
 	try {
-		for (const [module_name, ast] of Object.entries(modules)) {
-			let own_conv = {};
-			for (const func of ast.fun_def) {
-				let match_func_defines_type_0 = func.defines_type;
-				if (ov.is(match_func_defines_type_0, 'yes')) {
-					let type = ov.as(match_func_defines_type_0, 'yes');
-					if (tct.is_own_type(type, known_types)) {
-						let ref_type = ov.mk('tct_ref', module_name + '::' + func.name);
-						hash.set_value(own_conv, own_to_im_converter.get_function_name(ref_type, known_types), ref_type);
-					}
-				} else if (ov.is(match_func_defines_type_0, 'no')) {
-				}
-			}
-			let new_module = create_own_convertions_module(own_conv, known_types, module_name);
-			let found = false;
-			let new_fun_def = DC(ast.fun_def);
-			for (const new_fun of new_module.fun_def) {
-				found = false;
-				for (let i = 0; i < array.len(ast.fun_def); i++) {
-					if (new_fun_def[i].name === new_fun.name) {
-						found = true;
-						new_fun_def[i] = new_fun;
-						break;
-					}
-				}
-				if (!found) {
-					new_fun_def.push(new_fun);
-				}
-			}
-			modules[module_name].fun_def = new_fun_def;
-			lib_modules[module_name].fun_def = new_fun_def;
-		}
+		// for (const [module_name, ast] of Object.entries(modules)) {
+		// 	let own_conv = {};
+		// 	// for (const func of ast.fun_def) {
+		// 	// 	let match_func_defines_type_0 = func.defines_type;
+		// 	// 	if (ov.is(match_func_defines_type_0, 'yes')) {
+		// 	// 		let type = ov.as(match_func_defines_type_0, 'yes');
+		// 	// 		if (tct.is_own_type(type, known_types)) {
+		// 	// 			let ref_type = ov.mk('tct_ref', module_name + '::' + func.name);
+		// 	// 			hash.set_value(own_conv, own_to_im_converter.get_function_name(ref_type, known_types), ref_type);
+		// 	// 		}
+		// 	// 	} else if (ov.is(match_func_defines_type_0, 'no')) {
+		// 	// 	}
+		// 	// }
+		// 	let new_module = create_own_convertions_module(own_conv, known_types, module_name);
+		// 	let found = false;
+		// 	let new_fun_def = DC(ast.fun_def);
+		// 	for (const new_fun of new_module.fun_def) {
+		// 		found = false;
+		// 		for (let i = 0; i < array.len(ast.fun_def); i++) {
+		// 			if (new_fun_def[i].name === new_fun.name) {
+		// 				found = true;
+		// 				new_fun_def[i] = new_fun;
+		// 				break;
+		// 			}
+		// 		}
+		// 		if (!found) {
+		// 			new_fun_def.push(new_fun);
+		// 		}
+		// 	}
+		// 	modules[module_name].fun_def = new_fun_def;
+		// 	lib_modules[module_name].fun_def = new_fun_def;
+		// }
 		let def_fun = prepare_def_fun(lib_modules, errors);
 		for (const [module_name, ast] of Object.entries(modules)) {
 			errors.current_debug = nast.empty_debug()
@@ -466,7 +467,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 		cmd.cmd = ov.mk('while', as_while);
 	} else if (ov.is(match_cmd_cmd_0, 'if_mod')) {
 		let if_mod = ov.as(match_cmd_cmd_0, 'if_mod');
-		let vars_op = vars;
+		let vars_op = DC(vars);
 		let if_cond_type = check_val(if_mod.cond, modules, vars_op, errors, known_types);
 		if (!(ptd_system.is_condition_type(if_cond_type, modules, errors))) {
 			add_error(errors, 'if argument should be boolean type instead of ' +
