@@ -645,7 +645,7 @@ async function onDidSaveTextDocument(document) {
 		if (onSavePrettyPrint === 'Current module') didChange ||= await prettyPrintModule(document);
 		else if (onSavePrettyPrint === 'Current method') didChange ||= await prettyPrintMethod(document);
 		// await diagnosticsManager.updateAllOpenTabs(document);
-		if (didChange) await document.save();
+		// if (didChange) await document.save();
 	} else if (!isNotNl(document, 'nianiolangGr', '.gr')) {
 		const cfg = vscode.workspace.getConfiguration('nianiolang');
 		if (cfg.get('onSave.prettyPrintGr')) await prettyPrintGr(document);
