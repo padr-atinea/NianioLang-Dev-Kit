@@ -471,6 +471,98 @@ class ReferenceCounterCodeLensProvider {
 	}
 }
 
+async function loadPublicFunctionsFromFile(fileUri) {
+	if (!fileUri) return {};
+	try {
+		const document = await vscode.workspace.openTextDocument(fileUri);
+		return dfile.sload(document.getText());
+	} catch (e) {
+		return {};
+	}
+}
+
+class PublicFunctionsIndex {
+	constructor() {
+		this._set = {};
+		this._fileUri = null;
+
+		this._onDidChange = new vscode.EventEmitter();
+		this.onDidChange = this._onDidChange.event;
+	}
+
+	get set() { return this._set; }
+
+	async init() {
+		const found = await vscode.workspace.findFiles('public_functions.df', '**/node_modules/**', 1);
+		this._fileUri = found && found[0] ? found[0] : null;
+		await this.reload();
+		const watcher = vscode.workspace.createFileSystemWatcher('**/public_functions.df');
+		watcher.onDidChange(() => this.reload());
+		watcher.onDidCreate(() => this.reload());
+		watcher.onDidDelete(() => this.reload());
+		return watcher;
+	}
+
+	async reload() {
+		const next = await loadPublicFunctionsFromFile(this._fileUri);
+		this._set = next;
+		this._onDidChange.fire();
+	}
+
+	dispose() {
+		this._watcher?.dispose();
+		this._onDidChange.dispose();
+	}
+}
+
+class PublicFunctionsInlayHintsProvider {
+	constructor(publicIndex) {
+		this.publicIndex = publicIndex;
+
+		this._onDidChangeInlayHints = new vscode.EventEmitter();
+		this.onDidChangeInlayHints = this._onDidChangeInlayHints.event;
+
+		this._sub = this.publicIndex.onDidChange(() => {
+			this._onDidChangeInlayHints.fire();
+		});
+	}
+
+	dispose() {
+		this._sub?.dispose();
+		this._onDidChangeInlayHints.dispose();
+	}
+
+	async provideInlayHints(document, range, token) {
+		if (isNotNl(document)) return [];
+
+		const filePath = document.uri.fsPath;
+		const moduleName = path.basename(filePath, path.extname(filePath));
+		const mod = moduleManager.getModule(moduleName);
+		if (!mod) return [];
+
+		const out = [];
+		const pub = this.publicIndex.set;
+
+		for (const [methodName, method] of Object.entries(mod.methods)) {
+			if (token?.isCancellationRequested) break;
+			if (!pub[methodName]) continue;
+
+			const lineIndex = Math.max(0, (method.line | 0) - 1);
+			if (lineIndex < range.start.line || lineIndex > range.end.line) continue;
+			const pos = new vscode.Position(lineIndex, 0);
+			const hint = new vscode.InlayHint(pos, 'public', vscode.InlayHintKind.Type);
+			hint.paddingLeft = false;
+			hint.paddingRight = true;
+			hint.tooltip = 'This function is marked as public in \'public_functions.df\'';
+
+			out.push(hint);
+		}
+
+		return out;
+	}
+}
+
+
 function addFileWathers(context, codeLensProvider) {
 	const ignoreFileWatcher = vscode.workspace.createFileSystemWatcher('{.gitignore,.vscodeignore}');
 	ignoreFileWatcher.onDidCreate(moduleManager.updateIgnore);
@@ -551,14 +643,21 @@ async function activate(context) {
 	isDebug = context.extensionMode === vscode.ExtensionMode.Development;
 	console.log(getCurrentDateTime(), 'NianioLang Dev Kit starting');
 
+	const publicFunctionsIndex = new PublicFunctionsIndex();
+	const publicFunctionsFileWatcher = await publicFunctionsIndex.init();
+	const publicFunctionsInlayHintsProvider = new PublicFunctionsInlayHintsProvider(publicFunctionsIndex);
 	const codeLensProvider = new ReferenceCounterCodeLensProvider();
 	const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: starting`);
 	await loadAllModules();
 	addFileWathers(context, codeLensProvider);
+
 	const selector = { scheme: 'file', language: 'nianiolang' };
 	const selectorGr = { scheme: 'file', language: 'nianiolangGr' };
-
 	context.subscriptions.push(
+		publicFunctionsFileWatcher,
+		publicFunctionsIndex,
+		publicFunctionsInlayHintsProvider,
+		vscode.languages.registerInlayHintsProvider(selector, publicFunctionsInlayHintsProvider),
 		vscode.languages.registerDefinitionProvider(selector, { provideDefinition }),
 		vscode.languages.registerCompletionItemProvider(selector, { provideCompletionItems }, ':'),
 		vscode.languages.registerSignatureHelpProvider(selector, { provideSignatureHelp }, '(', ','),
@@ -636,9 +735,10 @@ function onDidChangeTextDocument(codeLensProvider) {
 async function onDidSaveTextDocument(document) {
 	if (!isNotNl(document)) {
 		if (document.eol !== vscode.EndOfLine.LF) await vscode.window.activeTextEditor?.edit((editBuilder) => editBuilder.setEndOfLine(vscode.EndOfLine.LF));
+		const hasErrors = vscode.languages.getDiagnostics(document.uri).some(diag => diag.severity === vscode.DiagnosticSeverity.Error);
 		const cfg = vscode.workspace.getConfiguration('nianiolang');
 		let didChange = false;
-		if (cfg.get('onSave.removeUnusedModules')) didChange ||= await removeUnusedModules(document);
+		if (cfg.get('onSave.removeUnusedModules') && !hasErrors) didChange ||= await removeUnusedModules(document);
 		if (cfg.get('onSave.addMissingModules')) didChange ||= await addMissingModules(document);
 		if (cfg.get('onSave.fixModuleNames')) didChange ||= await fixModuleNames(document);
 		const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
@@ -650,7 +750,6 @@ async function onDidSaveTextDocument(document) {
 		const cfg = vscode.workspace.getConfiguration('nianiolang');
 		if (cfg.get('onSave.prettyPrintGr')) await prettyPrintGr(document);
 	}
-	
 }
 
 async function prettyPrintModule(doc) {

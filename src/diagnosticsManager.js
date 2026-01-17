@@ -25,7 +25,7 @@ async function updateAllOpenTabs(document) {
 			modules.push(moduleName);
 		}
 	}
-	moduleManager.checkTypes(modules);
+	if (modules.length < 5) moduleManager.checkTypes(modules);
 	docs.forEach(d => updateDiagnostics(d, false, 'updateAllOpenTabs'));
 }
 
