@@ -619,7 +619,7 @@ async function loadAllModules() {
 				let thisModuleName = "";
 				try {
 					const document = await vscode.workspace.openTextDocument(uri);
-					moduleManager.updateModule(document);
+					moduleManager.updateModule(document, true);
 					thisModuleName = path.basename(uri.fsPath, path.extname(uri.fsPath));
 				} catch (e) {
 					if (!(e && e.message && e.message.startsWith("Canceled"))) console.error(e, e.stack);
@@ -696,7 +696,9 @@ async function activate(context) {
 		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch), 
 	);
 
-	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
+	if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') !== 'none') {
+		if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
+	}
 	console.log(getCurrentDateTime(), 'NianioLang Dev Kit activated');
 	statusMessage.dispose();
 	vscode.window.showInformationMessage('NianioLang Dev Kit: Ready to use');
@@ -795,7 +797,7 @@ async function prettyPrintGr(doc) {
 	} 
 	const out = dfile.ssave(ov.as(result, 'ok'));
 	if (!out) return;
-	await replaceRange(document, fullRange, out);
+	await replaceRange(document, fullRange, out + '\n');
 	return true;
 } 
 

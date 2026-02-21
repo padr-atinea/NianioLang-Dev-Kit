@@ -8,7 +8,7 @@ const positionToIndex = (line, col) => `${line}|${col}`;
 const indexToPosition = (index) => index.split('|').map(part => parseInt(part));
 const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
 
-async function updateAllOpenTabs(document) {
+async function updateAllOpenTabs(document, checkTypes) {
 	const uriSet = new Set([document?.uri.fsPath, null, undefined]);
 	const docs = [];
 	const modules = [];
@@ -25,17 +25,17 @@ async function updateAllOpenTabs(document) {
 			modules.push(moduleName);
 		}
 	}
-	if (modules.length < 5) moduleManager.checkTypes(modules);
-	docs.forEach(d => updateDiagnostics(d, false, 'updateAllOpenTabs'));
+	if (checkTypes) moduleManager.checkTypes(modules);
+	docs.forEach(d => updateDiagnostics(d, checkTypes));
 }
 
-function updateDiagnostics(document) {
+function updateDiagnostics(document, checkTypes) {
 	if (isNotNl(document)) return;
 	const fileName = document.fileName;
 	const thisModuleName = path.basename(fileName, path.extname(fileName));
 	const thisModule = moduleManager.getModule(thisModuleName);
 	if (!thisModule) return;
-	if (!thisModule.typesChecked) moduleManager.checkTypes([thisModuleName]);
+	if (!thisModule.typesChecked && checkTypes) moduleManager.checkTypes([thisModuleName]);
 	const diagnosticsList = [...thisModule.staticDiagnostics, ...thisModule.dynamicDiagnostics].map(err => new vscode.Diagnostic(
 		new vscode.Range(
 			Math.max(0, err.debug.begin.line - 1),

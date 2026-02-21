@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "2.2.0",
+	"version": "2.3.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],

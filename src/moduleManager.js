@@ -42,7 +42,7 @@ const showDebugHoverInfo = false;
 
 const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
 
-function updateModule(document) {
+function updateModule(document, init = false) {
 	if (isNotNl(document)) return;
 	const filePath = document.uri.fsPath;
 	if (checkFileIgnore(filePath)) return;
@@ -87,7 +87,7 @@ function updateModule(document) {
 
 	moduleCache[thisModuleName] = { typesChecked: false, filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] };
 
-	updateTypesCheckedByUsingsBackCache(thisModuleName);
+	if (!init) updateTypesCheckedByUsingsBackCache(thisModuleName);
 }
 
 function updateTypesCheckedByUsingsBackCache(moduleName, visited = {}) {
