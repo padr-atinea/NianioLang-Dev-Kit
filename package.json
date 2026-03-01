@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "2.3.0",
+	"version": "2.4.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -161,9 +161,6 @@
 				{ "command": "extension.prettyPrintModule", "when": "editorLangId == nianiolang && resourceExtname == .nl", "group": "1_refactor" },
 				{ "command": "extension.prettyPrintMethod", "when": "editorLangId == nianiolang && resourceExtname == .nl", "group": "1_refactor" },
 				{ "command": "extension.prettyPrintGr", "when": "editorLangId == nianiolangGr && resourceExtname == .gr", "group": "1_refactor" }
-			],
-			"scm/historyItem/context": [
-				{ "command": "nianiolang.generatePatchFromCommit", "when": "scmProvider == git && !listMultiSelection", "group": "navigation@99" }
 			]
 		}
 	},
