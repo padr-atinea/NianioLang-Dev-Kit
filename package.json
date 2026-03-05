@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "2.4.0",
+	"version": "2.5.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -23,7 +23,7 @@
 			{
 				"id": "nianiolang",
 				"aliases": [ "NianioLang", "nianiolang", "nl" ],
-				"extensions": [ ".gr" ],
+				"extensions": [ ".nl" ],
 				"configuration": "./language-configuration.json"
 			},
 			{
@@ -44,6 +44,11 @@
 					"enum": [ "none", "On change and save", "On save" ],
 					"default": "On change and save",
 					"description": "Sprawdzanie typów (błędy oraz podpowiedzi)"
+				},
+				"nianiolang.onMethodHover.showDependencies": {
+					"type": "boolean",
+					"default": true,
+					"description": "Pokaż zależności danej funkcji"
 				},
 				"nianiolang.onSave.prettyPrint": {
 					"type": "string",

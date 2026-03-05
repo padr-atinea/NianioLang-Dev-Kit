@@ -347,16 +347,68 @@ function provideHover(document, position) {
 	}
 	
 	const obj = getMethodAtPosition(document, position); if (!obj) return;
-	const { module, method, range: range1, fullName } = obj;
-	if (module.filePath == document.fileName && method.startPos == document.offsetAt(range1.start)) return;
+	const { module, method, fullName, isDef } = obj;
 
 	const md = new vscode.MarkdownString();
-	if (vscode.workspace.getConfiguration('nianiolang').get('onMethodHover.showReferenceCount')) {
-		const references = moduleManager.getReferences(fullName, module.filePath);
-		const referencesLength = Object.values(references).flat().length;
-		md.appendMarkdown(`${referencesLength} reference${referencesLength === 1 ? '' : 's'}`);
+	const conf = vscode.workspace.getConfiguration('nianiolang.onMethodHover');
+	if (!isDef) {
+		if (conf.get('showReferenceCount')) {
+			const references = moduleManager.getReferences(fullName, module.filePath);
+			const referencesLength = Object.values(references).flat().length;
+			md.appendMarkdown(`${referencesLength} reference${referencesLength === 1 ? '' : 's'}`);
+		}
+		md.appendCodeblock(method.rawMethod, 'nianiolang');
 	}
-	md.appendCodeblock(method.rawMethod, 'nianiolang');
+	if (conf.get('showDependencies')) {
+		const result = { ...method.dependencies };
+		const allDeps = {};
+		const roots = {};
+
+		function search(node, module, localDeps) {
+			for (const d of Object.keys(node)) {
+				if (d.includes("::")) {
+					if (Object.hasOwn(allDeps, d)) {
+						node[d] = 'cycle';
+						continue;
+					}
+					allDeps[d] = 1;
+					const newModule = moduleManager.getModule(d.split("::")[0]);
+					if (!newModule) {
+						roots[d.split("::")[0]] = 1;
+						node[d] = 'root';
+						continue;
+					}
+					const method = newModule.methods[d];
+					if (!method) {
+						node[d] = 'method not found';
+						continue;
+					}
+					node[d] = { ...method.dependencies };
+					search(node[d], newModule, {});
+				} else {
+					if (Object.hasOwn(localDeps, d)) {
+						node[d] = 'cycle';
+						continue;
+					}
+					localDeps[d] = 1;
+					const method = module.methods[d];
+					if (!method) {
+						node[d] = 'method not found';
+						continue;
+					}
+					node[d] = { ...method.dependencies };
+					search(node[d], module, localDeps);
+				}
+			}
+		}
+
+		search(result, module, {});
+		
+		const rootsString = Object.keys(roots).join(', ');
+		md.appendText(rootsString.length === 0
+			? `Method doesn't rely on any external dependencies`
+			: `Method rely on external dependencies: ${rootsString}`);
+	}
 	return new vscode.Hover(md, range);
 }
 
@@ -456,17 +508,18 @@ class ReferenceCounterCodeLensProvider {
 		const moduleName = path.basename(filePath, path.extname(filePath));
 		const mod = moduleManager.getModule(moduleName);
 		if (!mod) return [];
-		return Object.entries(mod.methods).map(([methodName, method]) => {
+		return Object.entries(mod.methods).flatMap(([methodName, method]) => {
 			const references = moduleManager.getReferences(methodName, filePath);
 			const length = Object.values(references).flat().length;
 			const pos = new vscode.Position(method.line - 1, 4);
 			const range = new vscode.Range(pos, pos);
-			return new vscode.CodeLens(range, {
+			const lenses = [new vscode.CodeLens(range, {
 				title: `${length} reference${length === 1 ? '' : 's'}`,
 				command: 'extension.showReferences',
 				arguments: [document, pos],
 				// arguments: [document, pos, references],
-			});
+			})];
+			return lenses;
 		});
 	}
 }
@@ -562,7 +615,6 @@ class PublicFunctionsInlayHintsProvider {
 	}
 }
 
-
 function addFileWathers(context, codeLensProvider) {
 	const ignoreFileWatcher = vscode.workspace.createFileSystemWatcher('{.gitignore,.vscodeignore}');
 	ignoreFileWatcher.onDidCreate(moduleManager.updateIgnore);
@@ -577,9 +629,8 @@ function addFileWathers(context, codeLensProvider) {
 	}));
 	fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
 		moduleManager.updateModule(document);
-		if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') !== 'none') {
-			diagnosticsManager.updateDiagnostics(document);
-		}
+		const checkTypes = vscode.workspace.getConfiguration('nianiolang').get('checkTypes') !== 'none';
+		diagnosticsManager.updateDiagnostics(document, checkTypes);
 		codeLensProvider._onDidChangeCodeLenses.fire();
 	}));
 	fileWatcher.onDidDelete(uri => {
@@ -634,6 +685,7 @@ async function loadAllModules() {
 		const workers = [];
 		for (let i = 0; i < concurrency; i++) workers.push(worker());
 		await Promise.all(workers);
+		progress.report({ message: `${total} / ${total} (100%)` });
 	});
 
 	console.log(getCurrentDateTime(), 'loadAllModules complited');
@@ -693,12 +745,9 @@ async function activate(context) {
 		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
 
 		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchManager.generatePatchFromCommit),
-		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch), 
+		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch),
 	);
-
-	if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') !== 'none') {
-		if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
-	}
+	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
 	console.log(getCurrentDateTime(), 'NianioLang Dev Kit activated');
 	statusMessage.dispose();
 	vscode.window.showInformationMessage('NianioLang Dev Kit: Ready to use');
@@ -724,11 +773,12 @@ async function updateAllDiagnostics() {
 
 function onDidChangeTextDocument(codeLensProvider) {
 	return event => {
+		const checkTypes = vscode.workspace.getConfiguration('nianiolang').get('checkTypes') == 'On change and save';
 		if (event.contentChanges.length > 0) {
 			moduleManager.updateModule(event.document);
-		}
-		if (vscode.workspace.getConfiguration('nianiolang').get('onSave.checkTypes') == 'On change and save') {
-			diagnosticsManager.updateDiagnostics(event.document);
+			diagnosticsManager.updateDiagnostics(event.document, checkTypes);
+		} else if (checkTypes) {
+			diagnosticsManager.updateDiagnostics(event.document, checkTypes);
 		}
 		codeLensProvider._onDidChangeCodeLenses.fire();
 	};
@@ -849,7 +899,6 @@ async function refactorToJS(doc) {
 	const newWoc = await vscode.workspace.openTextDocument({content, language: 'javascript'});
 	await vscode.window.showTextDocument(newWoc);
 }
-
 
 function deactivate() { }
 

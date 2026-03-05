@@ -114,7 +114,7 @@ function check_module(module, check_public_fun, functions) {
 		}
 		load_block(state, prev, fun_def.cmd.debug.end);
 		if (!state.return.was) {
-			if (ov.is(state.return.arg, 'value') || ov.is(state.return.arg, 'was_value')) add_error(state.errors, 'no return value at end of function');
+			if (ov.is(state.return.arg, 'value') || ov.is(state.return.arg, 'was_value')) add_error(state.errors, 'no return value at end of function', fun_def.cmd.debug);
 		}
 		func[fun_key] = state.called.func;
 		functions[fun_key] = state.called.func;
@@ -168,23 +168,23 @@ function check_module(module, check_public_fun, functions) {
 // 	}
 // }
 
-function check_types_imported(type, state) {
+function check_types_imported(type, state, debug) {
 	if (ov.is(type, 'tct_im')) {
 	} else if (ov.is(type, 'tct_arr')) {
-		check_types_imported(ov.as(type, 'tct_arr'), state);
+		check_types_imported(ov.as(type, 'tct_arr'), state, debug);
 	} else if (ov.is(type, 'tct_own_arr')) {
-		check_types_imported(ov.as(type, 'tct_own_arr'), state);
+		check_types_imported(ov.as(type, 'tct_own_arr'), state, debug);
 	} else if (ov.is(type, 'tct_hash')) {
-		check_types_imported(ov.as(type, 'tct_hash'), state);
+		check_types_imported(ov.as(type, 'tct_hash'), state, debug);
 	} else if (ov.is(type, 'tct_own_hash')) {
-		check_types_imported(ov.as(type, 'tct_own_hash'), state);
+		check_types_imported(ov.as(type, 'tct_own_hash'), state, debug);
 	} else if (ov.is(type, 'tct_rec')) {
 		for (const record of Object.values(ov.as(type, 'tct_rec'))) {
-			check_types_imported(record, state);
+			check_types_imported(record, state, debug);
 		}
 	} else if (ov.is(type, 'tct_own_rec')) {
 		for (const record of Object.values(ov.as(type, 'tct_own_rec'))) {
-			check_types_imported(record, state);
+			check_types_imported(record, state, debug);
 		}
 	} else if (ov.is(type, 'tct_ref')) {
 		const ref_name = ov.as(type, 'tct_ref');
@@ -192,9 +192,9 @@ function check_types_imported(type, state) {
 		if (ix >= 0) {
 			var module = ref_name.slice(0, ix);
 			var fun_name = ref_name.slice(ix + 2, ref_name.length - ix - 2);
-			add_fun_used(module, fun_name, state);
+			add_fun_used(module, fun_name, state, debug);
 		} else {
-			add_error(state.errors, `wrong type function name \'${ref_name}\' `);
+			add_error(state.errors, `wrong type function name \'${ref_name}\' `, debug);
 		}
 	} else if (ov.is(type, 'tct_void')) {
 	} else if (ov.is(type, 'tct_int')) {
@@ -205,7 +205,7 @@ function check_types_imported(type, state) {
 			if (ov.is(from_type, 'no_param')) {
 			} else if (ov.is(from_type, 'with_param')) {
 				const param = ov.as(from_type, 'with_param');
-				check_types_imported(param, state);
+				check_types_imported(param, state, debug);
 			}
 		}
 	} else if (ov.is(type, 'tct_own_var')) {
@@ -213,7 +213,7 @@ function check_types_imported(type, state) {
 			if (ov.is(from_type, 'no_param')) {
 			} else if (ov.is(from_type, 'with_param')) {
 				const param = ov.as(from_type, 'with_param');
-				check_types_imported(param, state);
+				check_types_imported(param, state, debug);
 			}
 		}
 	} else if (ov.is(type, 'tct_empty')) {
@@ -260,9 +260,9 @@ function check_type(type, state) {
 		}
 		const val = ptd_parser.try_value_to_ptd(value);
 		if (ov.is(val, 'err')) {
-			add_error(state.errors, ov.as(val, 'err'));
+			add_error(state.errors, ov.as(val, 'err'), type.debug);
 		} else if (ov.is(val, 'ok')) {
-			check_types_imported(ov.as(val, 'ok'), state);
+			check_types_imported(ov.as(val, 'ok'), state, type.debug);
 		}
 	}
 }

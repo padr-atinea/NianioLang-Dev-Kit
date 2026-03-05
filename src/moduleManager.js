@@ -49,45 +49,60 @@ function updateModule(document, init = false) {
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const text = document.getText();
 	const methods = {};
+	const statusMessage = init ? null : vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: update module ${thisModuleName}`);
+	if (!init) console.time(`updateModule ${thisModuleName}`);
+	try {
+		clearReferenceCache(filePath);
 
-	clearReferenceCache(filePath);
+		(knownTypesInModule[thisModuleName] ?? []).forEach(name => delete knownTypes[name]);
+		knownTypesInModule[thisModuleName] = [];
 
-	(knownTypesInModule[thisModuleName] ?? []).forEach(name => delete knownTypes[name]);
-	knownTypesInModule[thisModuleName] = [];
+		let methodDependencies = {};
 
-	const addMethod = (fun) => {
-		fun.endLine = fun.cmd.debug.end.line;
-		fun.rawRange = new vscode.Range(fun.line - 1, 0, fun.endLine - 1, 1);
-		fun.rawMethod = [...fun.comment, document.getText(fun.rawRange)].join('\n');
-		const name = `${ov.is(fun.access, 'pub') ? `${thisModuleName}::` : ``}${fun.name}`;
-		methods[name] = fun;
-		if (ov.is(fun.defines_type, 'yes') && ov.is(fun.access, 'pub')) {
-			knownTypes[name] = ov.as(fun.defines_type, 'yes');
-			knownTypesInModule[thisModuleName].push(name);
-		}
-	};
+		const addMethod = (fun) => {
+			fun.endLine = fun.cmd.debug.end.line;
+			fun.rawRange = new vscode.Range(fun.line - 1, 0, fun.endLine - 1, 1);
+			fun.rawMethod = [...fun.comment, document.getText(fun.rawRange)].join('\n');
+			fun.dependencies = { ...methodDependencies };
+			methodDependencies = {};
+			const name = `${ov.is(fun.access, 'pub') ? `${thisModuleName}::` : ``}${fun.name}`;
+			methods[name] = fun;
+			if (ov.is(fun.defines_type, 'yes') && ov.is(fun.access, 'pub')) {
+				knownTypes[name] = ov.as(fun.defines_type, 'yes');
+				knownTypesInModule[thisModuleName].push(name);
+			}
+		};
 
-	const addReference = (methodName, startPos) => {
-		referenceCache[methodName] ??= {};
-		referenceCache[methodName][filePath] ??= [];
-		referenceCache[methodName][filePath].push(startPos);
-		referenceBackCache[filePath][methodName] ??= [];
-		referenceBackCache[filePath][methodName].push(startPos);
-	};
+		const addReference = (methodName, startPos) => {
+			methodDependencies[methodName] = startPos;
+			referenceCache[methodName] ??= {};
+			referenceCache[methodName][filePath] ??= [];
+			referenceCache[methodName][filePath].push(startPos);
+			referenceBackCache[filePath][methodName] ??= [];
+			referenceBackCache[filePath][methodName].push(startPos);
+		};
 
-	libModules[thisModuleName] = nparser.sparse(text, thisModuleName, addReference, addMethod);
+		libModules[thisModuleName] = nparser.sparse(text, thisModuleName, addReference, addMethod);
 
-	updateUsingsBackCache(thisModuleName);
+		updateUsingsBackCache(thisModuleName);
 
-	const errors = module_checker.check_module(libModules[thisModuleName], true, {});
+		const errors = module_checker.check_module(libModules[thisModuleName], true, {});
 
-	const staticDiagnostics = [libModules[thisModuleName].errors, libModules[thisModuleName].warnings, errors.errors, errors.warnings].flat();
-	const dynamicDiagnostics = moduleCache[thisModuleName]?.dynamicDiagnostics ?? [];
-	const varPositions = moduleCache[thisModuleName]?.varPositions ?? {};
+		const staticDiagnostics = [libModules[thisModuleName].errors, libModules[thisModuleName].warnings, errors.errors, errors.warnings].flat();
+		const dynamicDiagnostics = moduleCache[thisModuleName]?.dynamicDiagnostics ?? [];
+		const varPositions = moduleCache[thisModuleName]?.varPositions ?? {};
 
-	moduleCache[thisModuleName] = { typesChecked: false, filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] };
+		moduleCache[thisModuleName] = { typesChecked: false, filePath, methods, dynamicDiagnostics, varPositions, staticDiagnostics, parsedModule: libModules[thisModuleName] };
 
-	if (!init) updateTypesCheckedByUsingsBackCache(thisModuleName);
+		if (!init) updateTypesCheckedByUsingsBackCache(thisModuleName);
+
+	} catch (e) {
+		console.log(e);
+	} finally {
+		statusMessage?.dispose();
+	}
+
+	if (!init) console.timeEnd(`updateModule ${thisModuleName}`);
 }
 
 function updateTypesCheckedByUsingsBackCache(moduleName, visited = {}) {
@@ -191,8 +206,11 @@ function checkTypes(modules) {
 			moduleCache[mod].typesChecked = true;
 		}
 	})
-	
+	const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: checking types ${modules}`);
+	console.time(`checkTypes ${modules}`);
 	const type_errors = type_checker.check_modules(mods, libModules, knownTypes);
+	console.timeEnd(`checkTypes ${modules}`);
+	statusMessage.dispose();
 
 	Object.keys(type_errors.errors).forEach(mod => {
 		if (!(mod in moduleCache)) return;
