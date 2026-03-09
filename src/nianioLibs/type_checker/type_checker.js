@@ -289,6 +289,9 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 				add_error(errors, `Function ${fun_def.name} takes non-ref own argument ${fun_arg.name}`);
 			}
 		}
+		if (ov.is(fun_arg.type, 'type')) {
+			errors.current_debug = ov.as(fun_arg.type, 'type').debug;
+		}
 		check_types_imported(arg_type, modules, errors);
 		add_var_decl_to_vars(arg_type, fun_arg.name, fun_vars, errors, fun_arg.place);
 		module.fun_def[i].args[j].tct_type = arg_type;
@@ -1762,8 +1765,8 @@ function get_type_from_bin_op_and_check(bin_op, modules, vars, errors, known_typ
 		if (!ptd_system.is_accepted(left_type2, tct.arr(tct.tct_im()), modules, errors) &&
 			!ptd_system.is_accepted(left_type2, tct.own_arr(tct.tct_im()), modules, errors)) {
 			add_error(errors, 'array operator \'[]=\' can be applied only to array', {
-				begin: bin_op.left.debug.end,
-				end: { line: bin_op.left.debug.end.line, position: bin_op.left.debug.end.position + 3 }
+				begin: { line: bin_op.left.debug.end.line, position: bin_op.left.debug.end.position + 1 },
+				end: { line: bin_op.left.debug.end.line, position: bin_op.left.debug.end.position + 4 }
 			});
 			return ret_type;
 		}

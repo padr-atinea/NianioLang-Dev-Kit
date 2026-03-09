@@ -247,7 +247,7 @@ function addModuleUsage(state, module, place) {
 function parse_label(state, begin) {
 	const word = ntokenizer.eat_type(state.state, ov.mk('word'));
 	if (!ntokenizer.next_is(state.state, '(') && !ntokenizer.next_is(state.state, '::')) return ov.mk('ok', ov.mk('var', word));
-	const fun_val = { module: '', name: '', args: [], debug: { begin, end: ntokenizer.get_place(state.state) } };
+	const fun_val = { module: '', name: '', args: [], debug: { begin, end: ntokenizer.get_place_ws(state.state) } };
 	if (try_eat(state, '::')) {
 		fun_val.module = word;
 		const try_fun_val_name = eat_text(state);
@@ -276,7 +276,7 @@ function parse_hash_key(state) {
 		ret = ov.mk('hash_key', ntokenizer.eat_type(state.state, ov.mk('string')));
 	}
 	return {
-		debug: { begin: begin_place, end: ntokenizer.get_place(state.state), comment: [] },
+		debug: { begin: begin_place, end: ntokenizer.get_place_ws(state.state), comment: [] },
 		value: ret,
 		type: ov.mk('tct_im'),
 	};
@@ -328,7 +328,7 @@ function parse_type(state) {
 		return ov.mk('ok', {
 			debug: {
 				begin: begin,
-				end: ntokenizer.get_place(state.state),
+				end: ntokenizer.get_place_ws(state.state),
 				comment: [],
 			},
 			value: ov.mk('unary_op', {
@@ -348,7 +348,7 @@ function parse_type(state) {
 		const ret = ov.as(try_ret, 'ok');
 		if (ov.is(ret, 'fun_val')) {
 			return ov.mk('ok', {
-				debug: { begin: begin, end: ntokenizer.get_place(state.state), comment: [] },
+				debug: { begin: begin, end: ntokenizer.get_place_ws(state.state), comment: [] },
 				value: ret,
 				type: ov.mk('tct_im'),
 			});
@@ -356,7 +356,7 @@ function parse_type(state) {
 	}
 	add_error(state, 'wrong format of type, expected \'@\' or function call');
 	return ov.mk('ok', {
-		debug: { begin: begin, end: ntokenizer.get_place(state.state), comment: [] },
+		debug: { begin: begin, end: ntokenizer.get_place_ws(state.state), comment: [] },
 		value: ov.mk('nop'),
 		type: ov.mk('tct_im'),
 	});
@@ -366,7 +366,7 @@ function parse_expr_rec_left(state, left, prec) {
 	while (true) {
 		const old_left = DC(left);
 		let new_left;
-		const new_begin = ntokenizer.get_place(state.state);
+		const new_begin = ntokenizer.get_place_ws(state.state);
 		const token = ntokenizer.get_token(state.state);
 		let op;
 		if (Object.keys(nast.ops.ternary).includes(token)) {
@@ -429,7 +429,7 @@ function parse_expr_rec_left(state, left, prec) {
 		} else {
 			return ov.mk('ok', old_left);
 		}
-		left.debug = DC({ begin: new_begin, end: ntokenizer.get_place(state.state), comment: [] });
+		left.debug = DC({ begin: new_begin, end: ntokenizer.get_place_ws(state.state), comment: [] });
 		left.value = DC(new_left);
 		left.type = ov.mk('tct_im');
 	}
@@ -488,7 +488,7 @@ function parse_expr_rec(state, prec) {
 		if (op === '@') {
 			const fun_label_begin = ntokenizer.get_place(state.state);
 			const fun_label = ov.mk('fun_label', parse_fun_label(state, fun_label_begin));
-			const fun_label_end = ntokenizer.get_place(state.state);
+			const fun_label_end = ntokenizer.get_place_ws(state.state);
 			value = {
 				debug: {
 					begin: fun_label_begin,
@@ -520,7 +520,7 @@ function parse_expr_rec(state, prec) {
 		return ov.mk('err', err);
 	}
 	const left = {
-		debug: { begin: begin, end: ntokenizer.get_place(state.state), comment: [] },
+		debug: { begin: begin, end: ntokenizer.get_place_ws(state.state), comment: [] },
 		value: expr,
 		type: ov.mk('tct_im'),
 	};

@@ -262,9 +262,9 @@ function check_type(type, state) {
 		}
 		const val = ptd_parser.try_value_to_ptd(value);
 		if (ov.is(val, 'err')) {
-			add_error(state.errors, ov.as(val, 'err'), type.debug);
+			add_error(state.errors, ov.as(val, 'err'), value.debug);
 		} else if (ov.is(val, 'ok')) {
-			check_types_imported(ov.as(val, 'ok'), state, type.debug);
+			check_types_imported(ov.as(val, 'ok'), state, value.debug);
 		}
 	}
 }
