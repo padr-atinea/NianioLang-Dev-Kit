@@ -83,7 +83,7 @@ async function provideDefinition(document, position) {
 			return new vscode.Location(document.uri, new vscode.Position(defPlace.line - 1, defPlace.position - 1));
 		} else if (ov.is(token, 'def')) {
 			const def = ov.as(token, 'def');
-			return Object.keys(def.refs).map(ref => {
+			return Object.keys(def.refs ?? {}).map(ref => {
 				const refPos = indexToPosition(ref);
 				return new vscode.Location(document.uri, new vscode.Range(refPos[0] - 1, refPos[1] - 1, refPos[0] - 1, refPos[1] - 1 + def.name.length));
 			});
@@ -452,7 +452,7 @@ async function provideRenameEdits(document, position, newName) {
 	const edit = new vscode.WorkspaceEdit();
 	if (token && (ov.is(token, 'ref') || ov.is(token, 'def'))) {
 		const def = ov.get_value(token);
-		for (const defPos of Object.keys(def.refs)) {
+		for (const defPos of Object.keys(def.refs ?? {})) {
 			const pos = indexToPosition(defPos);
 			edit.replace(document.uri, new vscode.Range(pos[0] - 1, pos[1] - 1, pos[0] - 1, pos[1] - 1 + def.name.length), newName);
 		}

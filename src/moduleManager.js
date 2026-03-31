@@ -50,7 +50,7 @@ function updateModule(document, init = false) {
 	const text = document.getText();
 	const methods = {};
 	const statusMessage = init ? null : vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: update module ${thisModuleName}`);
-	if (!init) console.time(`updateModule ${thisModuleName}`);
+	if (!init && showDebugInfo) console.time(`updateModule ${thisModuleName}`);
 	try {
 		clearReferenceCache(filePath);
 
@@ -102,7 +102,7 @@ function updateModule(document, init = false) {
 		statusMessage?.dispose();
 	}
 
-	if (!init) console.timeEnd(`updateModule ${thisModuleName}`);
+	if (!init && showDebugInfo) console.timeEnd(`updateModule ${thisModuleName}`);
 }
 
 function updateTypesCheckedByUsingsBackCache(moduleName, visited = {}) {
@@ -207,9 +207,9 @@ function checkTypes(modules) {
 		}
 	})
 	const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: checking types ${modules}`);
-	console.time(`checkTypes ${modules}`);
+	if (showDebugInfo) console.time(`checkTypes ${modules}`);
 	const type_errors = type_checker.check_modules(mods, libModules, knownTypes);
-	console.timeEnd(`checkTypes ${modules}`);
+	if (showDebugInfo) console.timeEnd(`checkTypes ${modules}`);
 	statusMessage.dispose();
 
 	Object.keys(type_errors.errors).forEach(mod => {
