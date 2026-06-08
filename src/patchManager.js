@@ -73,7 +73,7 @@ async function generatePatch(commitish) {
 	const root = folders[0].uri.fsPath;
 	const rootFolder = root.split('\\').at(-1).split('_')[0];
 	const sha = commitish;
-	const patch = await runGit(["show", "-p", sha], root);
+	const patch = await runGit(["show", "-p", "--no-renames", sha], root);
 
 	const lines = patch.split(/\r?\n/);
 	const cleanedPatch = [];
