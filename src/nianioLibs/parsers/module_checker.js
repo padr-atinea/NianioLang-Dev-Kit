@@ -115,7 +115,7 @@ function check_module(module, check_public_fun, functions) {
 		load_block(state, prev, fun_def.cmd.debug.end);
 		if (!state.return.was) {
 			if (ov.is(state.return.arg, 'value') || ov.is(state.return.arg, 'was_value')) {
-				add_error(state.errors, 'no return value at end of function', fun_def.ret_type.type.type.debug);
+				add_error(state.errors, 'no return value at end of function', fun_def.ret_type.type?.type?.debug ?? fun_def.cmd.debug);
 			}
 		}
 		func[fun_key] = state.called.func;
