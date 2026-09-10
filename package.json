@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "2.9.0",
+	"version": "2.10.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -39,6 +39,11 @@
 		],
 		"configuration": {
 			"properties": {
+				"nianiolang.debugMode": {
+					"type": "boolean",
+					"default": false,
+					"description": "Tryb debugowania (włącza widoczność dodatkowych informacji)"
+				},
 				"nianiolang.checkTypes": {
 					"type": "string",
 					"enum": [ "none", "On change and save", "On save" ],
@@ -158,6 +163,7 @@
 			{ "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
 			{ "command": "extension.prettyPrintGr", "title": "NianioLang: Pretty Print GR File" },
 			{ "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" },
+			{ "command": "extension.showModuleObject", "title": "NianioLang: Show Module Object" },
 			{ "command": "nianiolang.generatePatchFromCommit", "title": "NianioLang: Generate Patch From Commit", "icon": "$(diff)" },
 			{ "command": "nianiolang.applyPatch", "title": "NianioLang: Apply Patch", "icon": "$(diff)" }
 		],

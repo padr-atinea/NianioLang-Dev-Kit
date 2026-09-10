@@ -15,8 +15,6 @@ const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0
 let hoverDepth = 0;
 let hoverShowOriginalTypeName = false;
 
-let isDebug = false;
-
 const isNotNl = (document, languageId = 'nianiolang', ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== languageId || path.extname(document.fileName) !== ext;
 
 const getCurrentDateTime = () => {
@@ -342,7 +340,7 @@ function provideHover(document, position) {
 			md.appendMarkdown(`${minus} ${plus} Depth: ${hoverDepth} \t|\t ${showName}\n`);
 			md.appendCodeblock(`type: ${type}`, 'nianiolang');
 		}
-		if (isDebug) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
+		if (vscode.workspace.getConfiguration('nianiolang').get('debugMode')) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
 		return new vscode.Hover(md, range);
 	}
 	
@@ -508,19 +506,28 @@ class ReferenceCounterCodeLensProvider {
 		const moduleName = path.basename(filePath, path.extname(filePath));
 		const mod = moduleManager.getModule(moduleName);
 		if (!mod) return [];
-		return Object.entries(mod.methods).flatMap(([methodName, method]) => {
+		const lenses = [];
+		if (vscode.workspace.getConfiguration('nianiolang').get('debugMode')) {
+			const topPos = new vscode.Position(0, 0);
+			lenses.push(new vscode.CodeLens(new vscode.Range(topPos, topPos), {
+				title: 'This Module Object',
+				command: 'extension.showModuleObject',
+				arguments: [document],
+			}));
+		}
+		lenses.push(...Object.entries(mod.methods).flatMap(([methodName, method]) => {
 			const references = moduleManager.getReferences(methodName, filePath);
 			const length = Object.values(references).flat().length;
 			const pos = new vscode.Position(method.line - 1, 4);
 			const range = new vscode.Range(pos, pos);
-			const lenses = [new vscode.CodeLens(range, {
+			return [new vscode.CodeLens(range, {
 				title: `${length} reference${length === 1 ? '' : 's'}`,
 				command: 'extension.showReferences',
 				arguments: [document, pos],
 				// arguments: [document, pos, references],
 			})];
-			return lenses;
-		});
+		}));
+		return lenses;
 	}
 }
 
@@ -692,7 +699,6 @@ async function loadAllModules() {
 }
 
 async function activate(context) {
-	isDebug = context.extensionMode === vscode.ExtensionMode.Development;
 	console.log(getCurrentDateTime(), 'NianioLang Dev Kit starting');
 
 	const publicFunctionsIndex = new PublicFunctionsIndex();
@@ -733,7 +739,8 @@ async function activate(context) {
 		vscode.commands.registerCommand('extension.prettyPrintModule', prettyPrintModule),
 		vscode.commands.registerCommand('extension.prettyPrintMethod', prettyPrintMethod),
 		vscode.commands.registerCommand('extension.prettyPrintGr', prettyPrintGr),
-		vscode.commands.registerCommand('extension.refactorToJS', refactorToJS), 
+		vscode.commands.registerCommand('extension.refactorToJS', refactorToJS),
+		vscode.commands.registerCommand('extension.showModuleObject', showModuleObject),
 		vscode.commands.registerCommand('extension.showReferences', async (document, position) => {
 			vscode.commands.executeCommand('editor.action.showReferences', document.uri, position, await provideReferences(document, position));
 		}),
@@ -743,6 +750,9 @@ async function activate(context) {
 		vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument(codeLensProvider)),
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
 		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
+		vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('nianiolang.debugMode')) codeLensProvider._onDidChangeCodeLenses.fire();
+		}),
 
 		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchManager.generatePatchFromCommit),
 		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch),
@@ -898,6 +908,17 @@ async function refactorToJS(doc) {
 	if (!content) return;
 	const newWoc = await vscode.workspace.openTextDocument({content, language: 'javascript'});
 	await vscode.window.showTextDocument(newWoc);
+}
+
+async function showModuleObject(doc) {
+	const document = doc ?? vscode.window.activeTextEditor?.document;
+	if (isNotNl(document)) return;
+	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
+	const mod = moduleManager.getModule(thisModuleName);
+	if (!mod) return;
+	const content = ptdPrinter.prettyPrinter(mod);
+	const newDoc = await vscode.workspace.openTextDocument({ content, language: 'json' });
+	await vscode.window.showTextDocument(newDoc, { viewColumn: vscode.ViewColumn.Beside });
 }
 
 function deactivate() { }
