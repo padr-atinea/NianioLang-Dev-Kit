@@ -5,6 +5,13 @@ function state_print(state, str) {
 	state.out += str;
 }
 
+// The layout engine: wprinter (classic) or state.layout - an object with the same print_t (see modern_pretty_printer).
+// line_ind: indentation of the line on which the printed element starts (used only by state.layout).
+function print_t(state, wise_s, ind, line_ind = ind) {
+	if (state.layout) state.layout.print_t(state, wise_s, ind, line_ind);
+	else wprinter.print_t(state, wise_s, ind);
+}
+
 // function print_module_to_struct(mod) {
 // 	var struct = {imports: [], function_s: []};
 // 	for (const imp of mod.imports) {
@@ -31,9 +38,9 @@ function state_print(state, str) {
 
 function print_stamp(state, stamp) {
 	if (stamp !== '') {
-		state_print(state, `${stamp}\n\n\n`);
+		state_print(state, `${stamp}\n\n`);
 	} else if (state.printNewStamp) {
-		state_print(state, `###\n# (c) Atinea Sp. z o.o.\n###\n\n\n`);
+		state_print(state, `###\n# (c) Atinea Sp. z o.o.\n###\n\n`);
 	}
 }
 
@@ -46,8 +53,8 @@ function print_imports(state, imports) {
 	state_print(state, `\n`);
 }
 
-function print_module_to_str(mod, removeMod = false, printNewStamp = false) {
-	var state = { out: '', removeMod, printNewStamp };
+function print_module_to_str(mod, removeMod = false, printNewStamp = false, layout = null) {
+	var state = { out: '', removeMod, printNewStamp, layout };
 	print_stamp(state, mod.stamp);
 	print_imports(state, mod.imports);
 	for (const function_ of mod.fun_def) {
@@ -103,7 +110,7 @@ function print_fun_def_head(state, function_, module) {
 			]);
 	} else if (ov.is(function_.ret_type.type, 'none')) {
 	}
-	wprinter.print_t(state, wprinter.build_pretty_l(ret), 0);
+	print_t(state, wprinter.build_pretty_l(ret), 0);
 }
 
 function join_print_var_decl(aval) {
@@ -300,7 +307,7 @@ function print_val(val) {
 		const bool = ov.as(val.value, 'bool');
 		return wprinter.build_sim(bool ? 'true' : 'false');
 	} else if (ov.is(val.value, 'hash_key')) {
-		const hash_key = ov.as(val.value, 'hash_key');
+		let hash_key = ov.as(val.value, 'hash_key');
 		if (!(is_proper_hash_key(hash_key))) hash_key = `\'${hash_key}\'`;
 		return wprinter.build_sim(hash_key);
 	} else if (ov.is(val.value, 'variant')) {
@@ -431,7 +438,7 @@ function print_cond_mod(state, header, cmd, arg_list, cond, ind) {
 	if (arg_list.length > 0) ret.push(wprinter.build_sim('('));
 	ret.push(print_val(cond));
 	if (arg_list.length > 0) ret.push(wprinter.build_sim(')'));
-	wprinter.print_t(state, wprinter.build_pretty_a([
+	print_t(state, wprinter.build_pretty_a([
 			print_simple_statement(cmd),
 			wprinter.get_sep(),
 			wprinter.build_pretty_op_l(ret)
@@ -451,7 +458,7 @@ function print_loop(state, header, cmd, arg_list, cond, ind) {
 		pprint.push(cond_p);
 	}
 	pprint.push(wprinter.build_sim(')'));
-	wprinter.print_t(state, wprinter.build_pretty_l(pprint), ind);
+	print_t(state, wprinter.build_pretty_l(pprint), ind);
 	print_st(state, cmd, ind);
 }
 
@@ -545,7 +552,7 @@ function print_simple_statement(cmd) {
 }
 
 function flush_sim_statement(state, st, ind) {
-	wprinter.print_t(state, st, ind);
+	print_t(state, st, ind);
 	state_print(state, ';');
 }
 
@@ -575,7 +582,7 @@ function print_cmd(state, cmd, ind) {
 			const var_decl = ov.as(as_for.start, 'var_decl');
 			start = print_var_decl(var_decl);
 		}
-		wprinter.print_t(state, wprinter.build_pretty_a([
+		print_t(state, wprinter.build_pretty_a([
 				wprinter.build_sim('for ('),
 				start,
 				wprinter.build_sim(';'),
@@ -604,14 +611,14 @@ function print_cmd(state, cmd, ind) {
 		state_print(state, ';');
 	} else if (ov.is(cmd.cmd, 'match')) {
 		const as_match = ov.as(cmd.cmd, 'match');
-		wprinter.print_t(state, wprinter.build_pretty_a([
+		print_t(state, wprinter.build_pretty_a([
 				wprinter.build_sim('match ('),
 				print_val(as_match.val),
 				wprinter.build_sim(')')
 			]), ind);
 		for (const case_el of as_match.branch_list) {
 			state_print(state, ' case ');
-			wprinter.print_t(state, print_variant_case_decl(case_el.variant), ind + 1);
+			print_t(state, print_variant_case_decl(case_el.variant), ind + 1, ind);
 			print_st(state, case_el.cmd, ind);
 		}
 	} else if (ov.is(cmd.cmd, 'fora')) {
@@ -649,7 +656,7 @@ function print_cmd(state, cmd, ind) {
 					'<=': '>',
 					'eq': 'ne',
 				};
-				if (Object.keys(opposites).includes(op)) {
+				if (op in opposites) {
 					unless_mod.cond.value.bin_op.op = opposites[op];
 					final_cond = unless_mod.cond;
 				} else if (Object.values(opposites).includes(op)) {
@@ -713,8 +720,8 @@ function is_proper_hash_key(string) {
 	return true;
 }
 
-function print_function(fun_def, moduleName, removeMod = false) {
-	const state = { out: '', removeMod };
+function print_function(fun_def, moduleName, removeMod = false, layout = null) {
+	const state = { out: '', removeMod, layout };
 	print_fun_def(state, fun_def, moduleName);
 	return state.out;
 }

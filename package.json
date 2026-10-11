@@ -2,7 +2,7 @@
 	"name": "nianiolang-dev-kit",
 	"displayName": "NianioLang Dev Kit",
 	"description": "",
-	"version": "2.10.0",
+	"version": "3.0.0",
 	"publisher": "padr",
 	"engines": { "vscode": "^1.98.0" },
 	"enabledApiProposals": [ "contribSourceControlHistoryItemMenu" ],
@@ -50,6 +50,12 @@
 					"default": "On change and save",
 					"description": "Sprawdzanie typów (błędy oraz podpowiedzi)"
 				},
+				"nianiolang.checkTypesScope": {
+					"type": "string",
+					"enum": [ "Open files", "All files" ],
+					"default": "Open files",
+					"description": "Które moduły zależne od zmienionego modułu są sprawdzane ponownie w tle: tylko otwarte pliki czy wszystkie (pozostałe są sprawdzane przy otwarciu)"
+				},
 				"nianiolang.onMethodHover.showDependencies": {
 					"type": "boolean",
 					"default": true,
@@ -80,6 +86,16 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Przy zapisie: popraw nazwy modułów przy deklaracji metod (kiedy nazwa modułu jest różna od nazwy pliku)"
+				},
+				"nianiolang.inlayHints.inferredTypes": {
+					"type": "boolean",
+					"default": false,
+					"description": "Pokazuje typy deklaracji zmiennych i parametrów bez jawnego typu, gdy checker określa je jednoznacznie (szary tekst; najechanie pokazuje zawartość typu, kliknięcie dodaje typ do deklaracji). Wymaga sprawdzania typów; obliczanie wymaga dodatkowego przebiegu checkera."
+				},
+				"nianiolang.prettyPrint.modernPrint": {
+					"type": "boolean",
+					"default": true,
+					"description": "Nowoczesne formatowanie: wnętrze sekcji rozwiniętej na wiele linii ma wcięcie o jeden poziom większe niż linia, w której sekcja się zaczyna (zamiast poziomu za każdy nawias), a rozwinięte tablice i hashe mają przecinek po ostatnim elemencie"
 				},
 				"nianiolang.onPrettyPrintModule.removeMod": {
 					"type": "boolean",
@@ -160,10 +176,12 @@
 		"commands": [
 			{ "command": "extension.updateAllDiagnostics", "title": "NianioLang: Update All Files Diagnostics" },
 			{ "command": "extension.prettyPrintModule", "title": "NianioLang: Pretty Print Current Module" },
+			{ "command": "extension.prettyPrintAllModules", "title": "NianioLang: Pretty Print All Modules" },
 			{ "command": "extension.prettyPrintMethod", "title": "NianioLang: Pretty Print Current Method" },
 			{ "command": "extension.prettyPrintGr", "title": "NianioLang: Pretty Print GR File" },
 			{ "command": "extension.refactorToJS", "title": "NianioLang: Refactor to JS (experimental)" },
 			{ "command": "extension.showModuleObject", "title": "NianioLang: Show Module Object" },
+			{ "command": "nianiolang.showAnalysisMonitor", "title": "NianioLang: Show Analysis Monitor (debug mode)", "icon": "$(pulse)" },
 			{ "command": "nianiolang.generatePatchFromCommit", "title": "NianioLang: Generate Patch From Commit", "icon": "$(diff)" },
 			{ "command": "nianiolang.applyPatch", "title": "NianioLang: Apply Patch", "icon": "$(diff)" }
 		],

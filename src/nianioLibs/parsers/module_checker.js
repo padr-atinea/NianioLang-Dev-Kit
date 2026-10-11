@@ -1,7 +1,7 @@
 const ov = require('../base/ov');
 const ptd_parser = require('./ptd_parser');
 
-const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = require('../base/json_clone'); // same semantics as JSON.parse(JSON.stringify(obj))
 // const DC = (obj) => structuredClone(obj);
 
 // function search_loops(modules) {
@@ -229,9 +229,9 @@ function get_fun_key(module, name, cur_mod) {
 
 function add_fun_used(module, name, state) {
 	const fun_key = get_fun_key(module, name, state.current_module);
-	if(Object.keys(state.called.func).includes(fun_key)) return;
+	if (fun_key in state.called.func) return;
 	state.called.func[fun_key] = state.errors.current_line;
-	if(module === '' || Object.keys(state.called.module).includes(module)) return;
+	if (module === '' || (module in state.called.module)) return;
 	state.called.module[module] = state.errors.current_line;
 }
 
@@ -270,7 +270,7 @@ function check_type(type, state) {
 }
 
 function add_var(var_dec, is_const, is_required, initialized, state) {
-	if (Object.keys(state.vars).includes(var_dec.name)) {
+	if (var_dec.name in state.vars) {
 		add_error(state.errors, `redeclaration variable: ${var_dec.name}`, { begin: { ...var_dec.place }, end: { ...var_dec.place } }, var_dec.name.length);
 	}
 	const val = {
@@ -291,7 +291,7 @@ function add_var(var_dec, is_const, is_required, initialized, state) {
 
 function use_var(name, mode, state, place) {
 	const debug = { begin: { ...place }, end: { ...place } };
-	if (!Object.keys(state.vars).includes(name)) {
+	if (!(name in state.vars)) {
 		add_error(state.errors, `unknown variable: ${name}`, debug, name.length);
 		return;
 	}
@@ -605,7 +605,7 @@ function check_val(val, state) {
 				check_val(fun_val_arg.val, state);
 			} else if (ov.is(fun_val_arg.mod, 'ref')) {
 				check_lvalue(fun_val_arg.val, state);
-				if (ov.is(fun_val_arg.val.value, 'var') && Object.keys(state.vars).includes(ov.as(fun_val_arg.val.value, 'var'))) {
+				if (ov.is(fun_val_arg.val.value, 'var') && (ov.as(fun_val_arg.val.value, 'var') in state.vars)) {
 					state.vars[ov.as(fun_val_arg.val.value, 'var')].initialized = true;
 				}
 			}
@@ -618,14 +618,18 @@ function check_val(val, state) {
 	}
 }
 
+// Only what load_block and restore_block use: which variables exist and whether they are initialized.
+// (A deep copy of state.vars - with whole declarations - in every block was the most expensive part of the check.)
 function save_block(state) {
-	return DC({ in_loop: state.in_loop, vars: state.vars });
+	const vars = {};
+	for (const key of Object.keys(state.vars)) vars[key] = { initialized: state.vars[key].initialized };
+	return { in_loop: state.in_loop, vars };
 }
 
 function load_block(state, prev, endPlace) {
 	state.in_loop = prev.in_loop;
-	for (const key of DC(Object.keys(state.vars))) {
-		if (!Object.keys(prev.vars).includes(key)) {
+	for (const key of Object.keys(state.vars)) {
+		if (!(key in prev.vars)) {
 			const info = state.vars[key];
 			info.endPlace = endPlace;
 			delete state.vars[key];

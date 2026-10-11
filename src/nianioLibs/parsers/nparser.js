@@ -3,8 +3,6 @@ const ntokenizer = require('./ntokenizer');
 const ptd_parser = require('./ptd_parser');
 const nast = require('../base/nast');
 
-const DC = (obj) => JSON.parse(JSON.stringify(obj));
-// const DC = (obj) => structuredClone(obj);
 
 const end_list = [';', 'if', 'unless', 'fora', 'forh', 'rep', 'while'];
 
@@ -364,12 +362,14 @@ function parse_type(state) {
 
 function parse_expr_rec_left(state, left, prec) {
 	while (true) {
-		const old_left = DC(left);
+		// a shallow copy is enough: `left` gets new debug/value/type objects below, so the previous
+		// ones stay referenced only by `old_left` (a deep copy here made long expressions O(n^2))
+		const old_left = { ...left };
 		let new_left;
 		const new_begin = ntokenizer.get_place_ws(state.state);
 		const token = ntokenizer.get_token(state.state);
 		let op;
-		if (Object.keys(nast.ops.ternary).includes(token)) {
+		if (token in nast.ops.ternary) {
 			const op_st = nast.ops.ternary[token];
 			op = token;
 			if (op === '?') {
@@ -386,7 +386,7 @@ function parse_expr_rec_left(state, left, prec) {
 			} else {
 				return ov.mk('err', 'ternary op: ' + op);
 			}
-		} else if (Object.keys(nast.ops.bin).includes(token)) {
+		} else if (token in nast.ops.bin) {
 			op = token;
 			const op_st = nast.ops.bin[token];
 			if (op_st.prec < prec || (op_st.prec == prec && ov.is(op_st.assoc, 'left'))) return ov.mk('ok', old_left);
@@ -429,8 +429,8 @@ function parse_expr_rec_left(state, left, prec) {
 		} else {
 			return ov.mk('ok', old_left);
 		}
-		left.debug = DC({ begin: new_begin, end: ntokenizer.get_place_ws(state.state), comment: [] });
-		left.value = DC(new_left);
+		left.debug = { begin: new_begin, end: ntokenizer.get_place_ws(state.state), comment: [] };
+		left.value = new_left;
 		left.type = ov.mk('tct_im');
 	}
 }

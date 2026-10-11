@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 const path = require('path');
-const os = require('os');
+const fs = require('fs');
 const moduleManager = require('./moduleManager');
 const diagnosticsManager = require('./diagnosticsManager');
 const ov = require('./nianioLibs/base/ov');
@@ -8,9 +8,44 @@ const ptdPrinter = require('./ptd-printer');
 const own_to_im_converter = require('./nianioLibs/type_checker/own_to_im_converter');
 const patchManager = require('./patchManager');
 const dfile = require('./nianioLibs/printers/dfile');
+const { AnalysisScheduler } = require('./analysisScheduler');
+const { AnalysisMonitor } = require('./analysisMonitor');
+const positionTracker = require('./positionTracker');
 
 const funcRegex = /(?<!((?<!:):|->)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
 const funcAndFieldRegex = /(?<!((?<!:):)[a-zA-Z0-9_]*)[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)?/;
+
+/** @type {AnalysisScheduler} */
+let scheduler = null;
+// makes sure the module of the document is parsed from its current text (parsing is debounced while typing)
+const ensureParsed = (document) => scheduler?.ensureParsed(document);
+/** @type {AnalysisMonitor} */
+let analysisMonitor = null;
+
+const isDebugMode = () => !!vscode.workspace.getConfiguration('nianiolang').get('debugMode');
+
+// the analysis monitor records only in debug mode
+function syncAnalysisMonitor() {
+	if (isDebugMode() && !analysisMonitor) {
+		analysisMonitor = new AnalysisMonitor(scheduler);
+		scheduler.monitor = analysisMonitor;
+	} else if (!isDebugMode() && analysisMonitor) {
+		scheduler.monitor = null;
+		analysisMonitor.dispose();
+		analysisMonitor = null;
+	}
+	scheduler.updateStatusBar();
+}
+
+async function showAnalysisMonitor() {
+	if (!analysisMonitor) {
+		const enable = 'Enable debug mode';
+		if (await vscode.window.showInformationMessage('NianioLang Dev Kit: the analysis monitor is available in debug mode (nianiolang.debugMode).', enable) !== enable) return;
+		await vscode.workspace.getConfiguration('nianiolang').update('debugMode', true, vscode.ConfigurationTarget.Global);
+		syncAnalysisMonitor();
+	}
+	analysisMonitor?.show();
+}
 
 let hoverDepth = 0;
 let hoverShowOriginalTypeName = false;
@@ -53,11 +88,12 @@ function tryGetPosToken(document, pos) {
 	const filePath = document.fileName;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const thisModule = moduleManager.getModule(thisModuleName);
-	const token = thisModule.varPositions[pos];
+	const token = thisModule?.varPositions[pos];
 	if (!token) return null;
 	if (ov.is(token, 'ref')) {
 		const defPos = positionToIndex(token.ref.line, token.ref.position);
 		const def = thisModule.varPositions[defPos];
+		if (!def || !ov.is(def, 'def')) return null;
 		return ov.mk('ref', ov.as(def, 'def'));
 	}
 	return token;
@@ -74,6 +110,7 @@ function tryGetPosTokenAtPosition(document, position) {
 }
 
 async function provideDefinition(document, position) {
+	ensureParsed(document);
 	const { token, range } = tryGetPosTokenAtPosition(document, position);
 	if (token) {
 		if (ov.is(token, 'ref')) {
@@ -108,6 +145,7 @@ const printParamsNoType = (params) => `${params.map(printParamNoType).join(', ')
 const printMethodNoType = (methodName, method) => `${methodName}(${printParamsNoType(method.args)})`;
 
 async function provideCompletionItems(document, position) {
+	ensureParsed(document);
 	const line = document.lineAt(position);
 	const text = line.text.substring(0, position.character);
 	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
@@ -211,6 +249,7 @@ async function provideCompletionItems(document, position) {
 }
 
 function provideSignatureHelp(document, position) {
+	ensureParsed(document);
 	const text = document.getText();
 	const offset = document.offsetAt(position);
 	let openParenIndex;
@@ -302,9 +341,11 @@ class NianioLangGRCodeActionProvider {
 
 async function addImports(moduleNames, uri) {
 	const document = await vscode.workspace.openTextDocument(uri);
+	ensureParsed(document);
 	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
 	const edit = new vscode.WorkspaceEdit();
 	const thisModule = moduleManager.getModule(thisModuleName);
+	if (!thisModule) return;
 	const usings = moduleNames
 		.filter(mod => mod !== thisModuleName && !(mod in thisModule.parsedModule.importsMap))
 		.map(mod => `use ${mod};`)
@@ -320,6 +361,7 @@ async function addImports(moduleNames, uri) {
 }
 
 function provideHover(document, position) {
+	ensureParsed(document);
 	const { token, range } = tryGetPosTokenAtPosition(document, position);
 	if (token) {
 		const md = new vscode.MarkdownString();
@@ -340,7 +382,7 @@ function provideHover(document, position) {
 			md.appendMarkdown(`${minus} ${plus} Depth: ${hoverDepth} \t|\t ${showName}\n`);
 			md.appendCodeblock(`type: ${type}`, 'nianiolang');
 		}
-		if (vscode.workspace.getConfiguration('nianiolang').get('debugMode')) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
+		// if (vscode.workspace.getConfiguration('nianiolang').get('debugMode')) md.appendCodeblock(ptdPrinter.prettyPrinter(token), 'json');
 		return new vscode.Hover(md, range);
 	}
 	
@@ -426,6 +468,7 @@ async function refreshHover(args) {
 }
 
 async function prepareRename(document, position) {
+	ensureParsed(document);
 	const { token, range } = tryGetPosTokenAtPosition(document, position);
 	if (ov.is(token, 'ref') || ov.is(token, 'def')) {
 		return {
@@ -446,6 +489,7 @@ async function prepareRename(document, position) {
 
 async function provideRenameEdits(document, position, newName) {
 	if (!/[a-zA-Z0-9_]/.test(newName)) return;
+	scheduler?.flushAllParses();
 	let { token, range } = tryGetPosTokenAtPosition(document, position);
 	const edit = new vscode.WorkspaceEdit();
 	if (token && (ov.is(token, 'ref') || ov.is(token, 'def'))) {
@@ -482,6 +526,7 @@ async function provideReferences(document, position) {
 }
 
 async function getLocationFromReferences(document, range) {
+	scheduler?.flushAllParses();
 	const symbol = document.getText(range);
 	const references = moduleManager.getReferences(symbol, document.uri.fsPath);
 	const locations = [];
@@ -502,17 +547,22 @@ class ReferenceCounterCodeLensProvider {
 
 	async provideCodeLenses(document) {
 		if (isNotNl(document)) return [];
+		ensureParsed(document);
 		const filePath = document.uri.fsPath;
 		const moduleName = path.basename(filePath, path.extname(filePath));
 		const mod = moduleManager.getModule(moduleName);
 		if (!mod) return [];
 		const lenses = [];
-		if (vscode.workspace.getConfiguration('nianiolang').get('debugMode')) {
+		if (isDebugMode()) {
 			const topPos = new vscode.Position(0, 0);
 			lenses.push(new vscode.CodeLens(new vscode.Range(topPos, topPos), {
 				title: 'This Module Object',
 				command: 'extension.showModuleObject',
 				arguments: [document],
+			}));
+			lenses.push(new vscode.CodeLens(new vscode.Range(topPos, topPos), {
+				title: 'Analysis Monitor',
+				command: 'nianiolang.showAnalysisMonitor',
 			}));
 		}
 		lenses.push(...Object.entries(mod.methods).flatMap(([methodName, method]) => {
@@ -575,6 +625,104 @@ class PublicFunctionsIndex {
 	}
 }
 
+// Inlay hints with the types of declarations without a type, which the type checker determines unambiguously
+// (nianiolang.inlayHints.inferredTypes). Click on the hint adds the type to the declaration.
+class InferredTypesInlayHintsProvider {
+	constructor() {
+		this._onDidChangeInlayHints = new vscode.EventEmitter();
+		this.onDidChangeInlayHints = this._onDidChangeInlayHints.event;
+	}
+
+	refresh() {
+		this._onDidChangeInlayHints.fire();
+	}
+
+	dispose() {
+		this._onDidChangeInlayHints.dispose();
+	}
+
+	provideInlayHints(document, range, token) {
+		if (isNotNl(document) || !moduleManager.isInferredTypesEnabled()) return [];
+		const mod = moduleManager.getModule(path.basename(document.fileName, path.extname(document.fileName)));
+		if (!mod) return [];
+		const hints = [];
+		for (const inferred of mod.inferredTypes) {
+			if (token?.isCancellationRequested) break;
+			if (inferred.line - 1 < range.start.line || inferred.line - 1 > range.end.line) continue;
+			// the declaration must still be there and without a type
+			const at = getInferredTypePosition(document, inferred);
+			if (!at) continue;
+			const { position, expected } = at;
+			const label = new vscode.InlayHintLabelPart(`: ${inferred.text.length > 60 ? inferred.text.slice(0, 59) + '…' : inferred.text}`);
+			label.tooltip = getInferredTypeTooltip(inferred);
+			label.command = {
+				title: 'Add the type to the declaration',
+				command: 'nianiolang.addInferredType',
+				arguments: [document.uri, position.line, position.character, expected, inferred.text, inferred.imports],
+			};
+			const hint = new vscode.InlayHint(position, [label], vscode.InlayHintKind.Type);
+			hint.paddingLeft = true;
+			if (inferred.imports.length === 0) hint.textEdits = [vscode.TextEdit.insert(position, ` : ${inferred.text}`)];
+			hints.push(hint);
+		}
+		return hints;
+	}
+}
+
+// Where the type is inserted: after the name of the variable / parameter, or after ')' of the function header for
+// the return type (the header may span several lines). null when the declaration has changed or already has a type.
+// expected: the text which must be right before the position.
+function getInferredTypePosition(document, inferred) {
+	const line = inferred.line - 1;
+	if (line >= document.lineCount) return null;
+	const lineText = document.lineAt(line).text;
+	if (inferred.kind !== 'return') {
+		const nameEnd = inferred.position - 1 + inferred.name.length;
+		if (lineText.slice(inferred.position - 1, nameEnd) !== inferred.name || /^\s*:/.test(lineText.slice(nameEnd))) return null;
+		return { position: new vscode.Position(line, nameEnd), expected: inferred.name };
+	}
+	// (the parser reports columns in the first line of the file one less)
+	const brace = lineText[inferred.position - 1] === '{' ? inferred.position - 1 : line === 0 && lineText[inferred.position] === '{' ? inferred.position : -1;
+	if (brace < 0) return null;
+	// back from '{' of the body over whitespace to ')' of the header
+	let l = line;
+	let text = lineText.slice(0, brace);
+	while (/^\s*$/.test(text) && l > 0) text = document.lineAt(--l).text;
+	text = text.replace(/\s+$/, '');
+	if (!text.endsWith(')')) return null;
+	return { position: new vscode.Position(l, text.length), expected: ')' };
+}
+
+function getInferredTypeTooltip(inferred) {
+	const md = new vscode.MarkdownString();
+	// md.appendMarkdown(`**Inferred type** of ${inferred.kind === 'param' ? 'parameter' : 'variable'} \`${inferred.name}\` - click to add it to the declaration\n`);
+	// md.appendCodeblock(`${inferred.kind === 'param' ? '' : 'var '}${inferred.name} : ${inferred.text}`, 'nianiolang');
+	// const usesTypes = inferred.text.includes('@');
+	// if (usesTypes) {
+	// 	md.appendMarkdown('Type contents:\n');
+	// 	md.appendCodeblock(own_to_im_converter.get_type_constructor(inferred.type, true, 1, moduleManager.knownTypes, true, true), 'nianiolang');
+	// }
+	md.appendCodeblock(own_to_im_converter.get_type_constructor(inferred.type, true, 1, moduleManager.knownTypes, true, true), 'nianiolang');
+	// if (inferred.imports.length > 0) md.appendMarkdown(`Adds also: ${inferred.imports.map(mod => `\`use ${mod};\``).join(', ')}\n\n`);
+	if (inferred.kind !== 'var' && inferred.public_fun) md.appendMarkdown(`⚠ Public function - the ${inferred.kind === 'return' ? 'return type' : 'type of the parameter'} changes its interface; calls from other modules are not verified.\n`);
+	return md;
+}
+
+// adds the inferred type (and the imports it needs) to the declaration
+// expected: the text right before the position (the name of the variable or ')' of the function header)
+async function addInferredType(uri, line, character, expected, text, imports = []) {
+	const document = await vscode.workspace.openTextDocument(uri);
+	const lineText = line < document.lineCount ? document.lineAt(line).text : '';
+	if (lineText.slice(character - expected.length, character) !== expected || /^\s*:/.test(lineText.slice(character))) {
+		vscode.window.showWarningMessage('NianioLang Dev Kit: the declaration has changed - the type was not added.');
+		return;
+	}
+	const edit = new vscode.WorkspaceEdit();
+	edit.insert(document.uri, new vscode.Position(line, character), ` : ${text}`);
+	await vscode.workspace.applyEdit(edit);
+	if (imports.length > 0) await addImports(imports, document.uri);
+}
+
 class PublicFunctionsInlayHintsProvider {
 	constructor(publicIndex) {
 		this.publicIndex = publicIndex;
@@ -594,6 +742,7 @@ class PublicFunctionsInlayHintsProvider {
 
 	async provideInlayHints(document, range, token) {
 		if (isNotNl(document)) return [];
+		ensureParsed(document);
 
 		const filePath = document.uri.fsPath;
 		const moduleName = path.basename(filePath, path.extname(filePath));
@@ -630,72 +779,58 @@ function addFileWathers(context, codeLensProvider) {
 	context.subscriptions.push(ignoreFileWatcher);
 
 	const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.nl');
-	fileWatcher.onDidCreate(uri => vscode.workspace.openTextDocument(uri).then(document => {
-		moduleManager.updateModule(document);
-		codeLensProvider._onDidChangeCodeLenses.fire();
-	}));
-	fileWatcher.onDidChange(uri => vscode.workspace.openTextDocument(uri).then(document => {
-		moduleManager.updateModule(document);
-		const checkTypes = vscode.workspace.getConfiguration('nianiolang').get('checkTypes') !== 'none';
-		diagnosticsManager.updateDiagnostics(document, checkTypes);
-		codeLensProvider._onDidChangeCodeLenses.fire();
-	}));
-	fileWatcher.onDidDelete(uri => {
-		moduleManager.removeModule(uri.fsPath);
-		codeLensProvider._onDidChangeCodeLenses.fire();
-	});
+	fileWatcher.onDidCreate(uri => scheduler.onFileCreated(uri));
+	fileWatcher.onDidChange(uri => scheduler.onFileChanged(uri));
+	fileWatcher.onDidDelete(uri => scheduler.onFileDeleted(uri));
 	context.subscriptions.push(fileWatcher);
 }
 
+// Replaces the text in the range and saves the document. Does nothing (returns false) when the text is the same.
+// Only the part which really differs is replaced - the cursor and the undo history are not disturbed.
 async function replaceRange(doc, range, newText) {
-	const edit = new vscode.WorkspaceEdit();
 	if (!(range instanceof vscode.Range)) range = new vscode.Range(range[0].line, range[0].character, range[1].line, range[1].character);
-	edit.replace(doc.uri, range, newText);
+	range = doc.validateRange(range);
+	const oldText = doc.getText(range);
+	if (oldText === newText) return false;
+	const edit = new vscode.WorkspaceEdit();
+	if (doc.eol === vscode.EndOfLine.LF) {
+		let prefix = 0;
+		const maxLen = Math.min(oldText.length, newText.length);
+		while (prefix < maxLen && oldText[prefix] === newText[prefix]) prefix++;
+		let suffix = 0;
+		while (suffix < maxLen - prefix && oldText[oldText.length - 1 - suffix] === newText[newText.length - 1 - suffix]) suffix++;
+		const startOffset = doc.offsetAt(range.start);
+		const changed = new vscode.Range(doc.positionAt(startOffset + prefix), doc.positionAt(startOffset + oldText.length - suffix));
+		edit.replace(doc.uri, changed, newText.slice(prefix, newText.length - suffix));
+	} else {
+		if (oldText.replace(/\r\n/g, '\n') === newText) return false;
+		edit.replace(doc.uri, range, newText);
+	}
 	await vscode.workspace.applyEdit(edit);
 	doc.save();
+	return true;
 }
 
 async function loadAllModules() {
+	const start = Date.now();
+	let total = 0;
 	await vscode.window.withProgress({
 		location: vscode.ProgressLocation.Notification,
 		title: `NianioLang Dev Kit: loading modules`,
 		cancellable: false
-	}, async (progress, token) => {
+	}, async (progress) => {
 		progress.report({ increment: 0 });
 		const files = await moduleManager.findFiles();
-		const total = files.length;
+		total = files.length;
 		if (total === 0) return;
-		const concurrency = Math.min(16, Math.max(1, Math.floor(os.cpus().length / 2)));
-		const increment = 100 / total;
-		let completed = 0;
-		const queue = files.slice();
-		queue.reverse();
-
-		async function worker() {
-			while (queue.length && (!token || !token.isCancellationRequested)) {
-				const uri = queue.shift();
-				let thisModuleName = "";
-				try {
-					const document = await vscode.workspace.openTextDocument(uri);
-					moduleManager.updateModule(document, true);
-					thisModuleName = path.basename(uri.fsPath, path.extname(uri.fsPath));
-				} catch (e) {
-					if (!(e && e.message && e.message.startsWith("Canceled"))) console.error(e, e.stack);
-				} finally {
-					completed++;
-					const percent = Math.round((10000 * completed) / total) / 100;
-					progress.report({ increment, message: `${completed} / ${total} (${percent}%)\n${thisModuleName}` });
-				}
-			}
-		}
-
-		const workers = [];
-		for (let i = 0; i < concurrency; i++) workers.push(worker());
-		await Promise.all(workers);
-		progress.report({ message: `${total} / ${total} (100%)` });
+		let reported = 0;
+		await moduleManager.loadModulesFromDisk(files, (done, moduleName) => {
+			const percent = Math.round((10000 * done) / total) / 100;
+			progress.report({ increment: 100 * (done - reported) / total, message: `${done} / ${total} (${percent}%)\n${moduleName}` });
+			reported = done;
+		});
 	});
-
-	console.log(getCurrentDateTime(), 'loadAllModules complited');
+	console.log(getCurrentDateTime(), `loadAllModules completed: ${total} modules in ${Date.now() - start} ms`);
 }
 
 async function activate(context) {
@@ -707,15 +842,26 @@ async function activate(context) {
 	const codeLensProvider = new ReferenceCounterCodeLensProvider();
 	const statusMessage = vscode.window.setStatusBarMessage(`$(sync~spin) NianioLang Dev Kit: starting`);
 	await loadAllModules();
+	scheduler = new AnalysisScheduler();
+	scheduler.onModuleParsed = () => codeLensProvider._onDidChangeCodeLenses.fire();
+	const inferredTypesInlayHintsProvider = new InferredTypesInlayHintsProvider();
+	scheduler.onTypesChecked = () => inferredTypesInlayHintsProvider.refresh();
+	// modules were loaded from disk - documents open in the editor may differ (e.g. restored unsaved changes)
+	vscode.workspace.textDocuments.forEach(document => scheduler.ensureParsed(document));
+	syncAnalysisMonitor();
 	addFileWathers(context, codeLensProvider);
 
 	const selector = { scheme: 'file', language: 'nianiolang' };
 	const selectorGr = { scheme: 'file', language: 'nianiolangGr' };
 	context.subscriptions.push(
+		scheduler,
+		{ dispose: () => analysisMonitor?.dispose() },
 		publicFunctionsFileWatcher,
 		publicFunctionsIndex,
 		publicFunctionsInlayHintsProvider,
 		vscode.languages.registerInlayHintsProvider(selector, publicFunctionsInlayHintsProvider),
+		inferredTypesInlayHintsProvider,
+		vscode.languages.registerInlayHintsProvider(selector, inferredTypesInlayHintsProvider),
 		vscode.languages.registerDefinitionProvider(selector, { provideDefinition }),
 		vscode.languages.registerCompletionItemProvider(selector, { provideCompletionItems }, ':'),
 		vscode.languages.registerSignatureHelpProvider(selector, { provideSignatureHelp }, '(', ','),
@@ -737,66 +883,76 @@ async function activate(context) {
 		// vscode.commands.registerCommand('extension.fixAllIncorretNames', fixAllIncorretNames),
 		vscode.commands.registerCommand('extension.updateAllDiagnostics', updateAllDiagnostics),
 		vscode.commands.registerCommand('extension.prettyPrintModule', prettyPrintModule),
+		vscode.commands.registerCommand('extension.prettyPrintAllModules', prettyPrintAllModules),
 		vscode.commands.registerCommand('extension.prettyPrintMethod', prettyPrintMethod),
 		vscode.commands.registerCommand('extension.prettyPrintGr', prettyPrintGr),
 		vscode.commands.registerCommand('extension.refactorToJS', refactorToJS),
 		vscode.commands.registerCommand('extension.showModuleObject', showModuleObject),
+		vscode.commands.registerCommand('nianiolang.addInferredType', addInferredType),
+		vscode.commands.registerCommand('nianiolang.showAnalysisMonitor', showAnalysisMonitor),
 		vscode.commands.registerCommand('extension.showReferences', async (document, position) => {
 			vscode.commands.executeCommand('editor.action.showReferences', document.uri, position, await provideReferences(document, position));
 		}),
 
 		// vscode.workspace.onDidRenameFiles(event => event.files.forEach(fixAllIncorretNamesWhenRename)),
-		vscode.workspace.onDidCloseTextDocument(diagnosticsManager.deleteDocument),
-		vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument(codeLensProvider)),
+		vscode.workspace.onDidChangeTextDocument(event => {
+			if (isNotNl(event.document)) return;
+			// keeps the positions of the type checking results in sync with the text
+			positionTracker.recordChange(event);
+			if (event.contentChanges.length > 0) scheduler.onDocumentChanged(event.document);
+		}),
+		vscode.workspace.onDidCloseTextDocument(document => positionTracker.forgetDocument(document.uri)),
+		// .nl files are saved with LF line endings (applied to the saved document as part of the save)
+		vscode.workspace.onWillSaveTextDocument(event => {
+			if (!isNotNl(event.document) && event.document.eol !== vscode.EndOfLine.LF) event.waitUntil(Promise.resolve([vscode.TextEdit.setEndOfLine(vscode.EndOfLine.LF)]));
+		}),
 		vscode.workspace.onDidSaveTextDocument(onDidSaveTextDocument),
-		vscode.window.onDidChangeVisibleTextEditors(editors => editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document))),
+		vscode.window.onDidChangeVisibleTextEditors(editors => {
+			editors.forEach(editor => diagnosticsManager.updateDiagnostics(editor.document));
+			scheduler.checkVisibleModules();
+		}),
+		// priorities of the type checks depend on the active editor
+		vscode.window.onDidChangeActiveTextEditor(() => {
+			scheduler.startJobs();
+			scheduler.resumeRunningJob();
+		}),
 		vscode.workspace.onDidChangeConfiguration(event => {
-			if (event.affectsConfiguration('nianiolang.debugMode')) codeLensProvider._onDidChangeCodeLenses.fire();
+			if (event.affectsConfiguration('nianiolang.debugMode')) {
+				syncAnalysisMonitor();
+				codeLensProvider._onDidChangeCodeLenses.fire();
+			}
+			if (event.affectsConfiguration('nianiolang.checkTypes') || event.affectsConfiguration('nianiolang.checkTypesScope')) scheduler.checkOpenModules();
+			if (event.affectsConfiguration('nianiolang.inlayHints.inferredTypes')) {
+				// the inferred types are computed during the type checking
+				if (moduleManager.isInferredTypesEnabled()) {
+					moduleManager.invalidateTypes(Object.keys(moduleManager.moduleCache));
+					scheduler.checkOpenModules('inferred types enabled');
+				}
+				inferredTypesInlayHintsProvider.refresh();
+			}
 		}),
 
 		vscode.commands.registerCommand('nianiolang.generatePatchFromCommit', patchManager.generatePatchFromCommit),
 		vscode.commands.registerCommand('nianiolang.applyPatch', patchManager.applyPatch),
 	);
-	if (vscode.window.activeTextEditor) await diagnosticsManager.updateAllOpenTabs();
+	scheduler.getEditorState().open.forEach(diagnosticsManager.publishModuleDiagnostics);
+	scheduler.checkOpenModules();
 	console.log(getCurrentDateTime(), 'NianioLang Dev Kit activated');
 	statusMessage.dispose();
 	vscode.window.showInformationMessage('NianioLang Dev Kit: Ready to use');
 }
 
 async function updateAllDiagnostics() {
-	const files = await moduleManager.findFiles();
-	await vscode.window.withProgress({
-		location: vscode.ProgressLocation.Notification,
-		title: `NianioLang Dev Kit: Update Diagnostics`,
-		cancellable: false
-	}, async (progress, _) => {
-		progress.report({ increment: 0 });
-		for (let i = 0; i < files.length; i++) {
-			const document = await vscode.workspace.openTextDocument(files[i]);
-			diagnosticsManager.updateDiagnostics(document);
-			progress.report({ increment: i / files.length * 0.6, message: `${i} / ${files.length} (${Math.round(10000 * i / files.length) / 100}%)` });
-		}
-	});
+	for (const document of vscode.workspace.textDocuments) ensureParsed(document);
+	Object.keys(moduleManager.moduleCache).forEach(diagnosticsManager.publishModuleDiagnostics);
 	console.log(getCurrentDateTime(), 'Diagnostics updated for all .nl files');
 	vscode.window.showInformationMessage('Diagnostics updated for all .nl files');
 }
 
-function onDidChangeTextDocument(codeLensProvider) {
-	return event => {
-		const checkTypes = vscode.workspace.getConfiguration('nianiolang').get('checkTypes') == 'On change and save';
-		if (event.contentChanges.length > 0) {
-			moduleManager.updateModule(event.document);
-			diagnosticsManager.updateDiagnostics(event.document, checkTypes);
-		} else if (checkTypes) {
-			diagnosticsManager.updateDiagnostics(event.document, checkTypes);
-		}
-		codeLensProvider._onDidChangeCodeLenses.fire();
-	};
-}
-
 async function onDidSaveTextDocument(document) {
 	if (!isNotNl(document)) {
-		if (document.eol !== vscode.EndOfLine.LF) await vscode.window.activeTextEditor?.edit((editBuilder) => editBuilder.setEndOfLine(vscode.EndOfLine.LF));
+		// parses the saved text (if not parsed yet) and requests the type checks
+		scheduler.onDocumentSaved(document);
 		const hasErrors = vscode.languages.getDiagnostics(document.uri).some(diag => diag.severity === vscode.DiagnosticSeverity.Error);
 		const cfg = vscode.workspace.getConfiguration('nianiolang');
 		let didChange = false;
@@ -806,7 +962,6 @@ async function onDidSaveTextDocument(document) {
 		const onSavePrettyPrint = cfg.get('onSave.prettyPrint');
 		if (onSavePrettyPrint === 'Current module') didChange ||= await prettyPrintModule(document);
 		else if (onSavePrettyPrint === 'Current method') didChange ||= await prettyPrintMethod(document);
-		// await diagnosticsManager.updateAllOpenTabs(document);
 		// if (didChange) await document.save();
 	} else if (!isNotNl(document, 'nianiolangGr', '.gr')) {
 		const cfg = vscode.workspace.getConfiguration('nianiolang');
@@ -817,20 +972,98 @@ async function onDidSaveTextDocument(document) {
 async function prettyPrintModule(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
 	if (isNotNl(document)) return false;
+	ensureParsed(document);
 	const lastLine = document.lineCount - 1;
 	const lastChar = document.lineAt(lastLine).text.length;
 	const fullRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lastLine, lastChar));
 	const filePath = document.fileName;
 	const thisModuleName = path.basename(filePath, path.extname(filePath));
 	const out = moduleManager.prettyPrintModule(thisModuleName);
-	if (!out) return;
-	await replaceRange(document, fullRange, out);
-	return true;
+	if (!out) return false;
+	return await replaceRange(document, fullRange, out);
+}
+
+let outputChannel = null;
+const getOutputChannel = () => outputChannel ??= vscode.window.createOutputChannel('NianioLang Dev Kit');
+
+// Pretty prints all modules of the project (with the current formatting settings). Modules with errors are skipped.
+// Documents open in the editor are edited and saved, other files are written directly (much faster than opening them).
+async function prettyPrintAllModules() {
+	const names = Object.keys(moduleManager.moduleCache).sort();
+	if (names.length === 0) return;
+	const style = vscode.workspace.getConfiguration('nianiolang').get('prettyPrint.modernPrint') ? 'modern' : 'classic';
+	const confirm = 'Pretty print';
+	const answer = await vscode.window.showWarningMessage(
+		`NianioLang Dev Kit: pretty print all ${names.length} modules of the project (${style} formatting)?`,
+		{ modal: true, detail: 'The files will be modified and saved. Modules with errors are skipped.' }, confirm);
+	if (answer !== confirm) return;
+	scheduler.flushAllParses();
+	const changed = [], skipped = [], failed = [];
+	let unchanged = 0, done = 0;
+	const start = Date.now();
+	const cancelled = await vscode.window.withProgress({
+		location: vscode.ProgressLocation.Notification,
+		title: 'NianioLang Dev Kit: pretty print',
+		cancellable: true,
+	}, async (progress, token) => {
+		let sliceStart = Date.now();
+		let reported = 0;
+		for (const name of names) {
+			if (token.isCancellationRequested) return true;
+			const mod = moduleManager.getModule(name);
+			if (!mod) continue;
+			const uri = vscode.Uri.file(mod.filePath);
+			try {
+				const document = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === uri.toString());
+				if (document) ensureParsed(document);
+				const out = moduleManager.prettyPrintModule(name);
+				if (!out) {
+					skipped.push(name);
+				} else if (document) {
+					const lastLine = document.lineCount - 1;
+					const fullRange = new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).text.length);
+					if (await replaceRange(document, fullRange, out)) changed.push(name);
+					else unchanged++;
+				} else {
+					const current = await fs.promises.readFile(mod.filePath, 'utf8');
+					const bom = current.charCodeAt(0) === 0xFEFF ? '﻿' : '';
+					if (current === bom + out) {
+						unchanged++;
+					} else {
+						await vscode.workspace.fs.writeFile(uri, Buffer.from(bom + out, 'utf8'));
+						changed.push(name);
+					}
+				}
+			} catch (e) {
+				failed.push(`${name}: ${e.message}`);
+			}
+			done++;
+			// printing is synchronous - let the editor breathe and report the progress from time to time
+			if (Date.now() - sliceStart > 50) {
+				progress.report({ increment: 100 * (done - reported) / names.length, message: `${done} / ${names.length}\n${name}` });
+				reported = done;
+				await new Promise(resolve => setImmediate(resolve));
+				sliceStart = Date.now();
+			}
+		}
+		return false;
+	});
+	const channel = getOutputChannel();
+	channel.appendLine(`${getCurrentDateTime()} Pretty print of all modules (${style} formatting)${cancelled ? ' - CANCELLED' : ''}: ${done} / ${names.length} processed in ${Date.now() - start} ms`);
+	channel.appendLine(`  changed: ${changed.length}${changed.length ? ' - ' + changed.join(', ') : ''}`);
+	channel.appendLine(`  already formatted: ${unchanged}`);
+	channel.appendLine(`  skipped (modules with errors): ${skipped.length}${skipped.length ? ' - ' + skipped.join(', ') : ''}`);
+	if (failed.length) channel.appendLine(`  failed: ${failed.length}\n    ${failed.join('\n    ')}`);
+	const summary = `NianioLang Dev Kit: pretty print${cancelled ? ' cancelled' : ''} - changed ${changed.length}, already formatted ${unchanged}, skipped (errors) ${skipped.length}${failed.length ? `, failed ${failed.length}` : ''}`;
+	const show = 'Show details';
+	const choice = failed.length ? await vscode.window.showWarningMessage(summary, show) : await vscode.window.showInformationMessage(summary, show);
+	if (choice === show) channel.show();
 }
 
 async function prettyPrintMethod(doc, pos = null) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
 	if (isNotNl(document)) return false;
+	ensureParsed(document);
 	if (pos === null) {
 		const editor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString());
 		if (!editor) return false;
@@ -841,8 +1074,7 @@ async function prettyPrintMethod(doc, pos = null) {
 	const obj = moduleManager.prettyPrintMethod(thisModuleName, pos);
 	if (!obj) return;
 	const { range, out } = obj;
-	await replaceRange(document, range, out);
-	return true;
+	return await replaceRange(document, range, out);
 }
 
 async function prettyPrintGr(doc) {
@@ -903,6 +1135,7 @@ async function fixModuleNames(document) {
 async function refactorToJS(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
 	if (isNotNl(document)) return;
+	ensureParsed(document);
 	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
 	const content = moduleManager.refactorToJS(thisModuleName);
 	if (!content) return;
@@ -913,6 +1146,7 @@ async function refactorToJS(doc) {
 async function showModuleObject(doc) {
 	const document = doc ?? vscode.window.activeTextEditor?.document;
 	if (isNotNl(document)) return;
+	ensureParsed(document);
 	const thisModuleName = path.basename(document.fileName, path.extname(document.fileName));
 	const mod = moduleManager.getModule(thisModuleName);
 	if (!mod) return;

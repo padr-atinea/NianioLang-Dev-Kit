@@ -326,7 +326,7 @@ function print_val(val, refs, varPositions) {
 		const bool = ov.as(val.value, 'bool');
 		return wprinter.build_sim(bool ? 'true' : 'false');
 	} else if (ov.is(val.value, 'hash_key')) {
-		const hash_key = ov.as(val.value, 'hash_key');
+		let hash_key = ov.as(val.value, 'hash_key');
 		if (!(is_proper_hash_key(hash_key))) hash_key = `\'${hash_key}\'`;
 		return wprinter.build_sim(hash_key);
 	} else if (ov.is(val.value, 'variant')) {
@@ -728,7 +728,7 @@ function print_cmd(state, cmd, ind, refs, varPositions) {
 					'<=': '>',
 					'eq': 'ne',
 				};
-				if (Object.keys(opposites).includes(op)) {
+				if (op in opposites) {
 					unless_mod.cond.value.bin_op.op = opposites[op];
 					final_cond = unless_mod.cond;
 				} else if (Object.values(opposites).includes(op)) {

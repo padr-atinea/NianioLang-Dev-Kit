@@ -240,6 +240,9 @@ function print_t_rec(state, wise_s, pref, ind) {
 
 module.exports = {
 	print_t,
+	print_sim_rec,
+	get_tab_size,
+	get_line_width,
 	build_str_arr,
 	build_sim,
 	build_pretty_arr_decl,

@@ -10,7 +10,7 @@ const ptd_system = require('./ptd_system');
 const own_to_im_converter = require('./own_to_im_converter');
 const nparser = require('../parsers/nparser');
 
-const DC = (obj) => JSON.parse(JSON.stringify(obj));
+const DC = require('../base/json_clone'); // same semantics as JSON.parse(JSON.stringify(obj))
 // const DC = (obj) => structuredClone(obj);
 
 const ObjectAssignInPlace = (objA, objB) =>
@@ -183,9 +183,56 @@ function prepare_def_fun(modules, errors) {
 // 	return known_types;
 // }
 
+function new_errors(collect_var_types = false) {
+	return { errors: { '': [] }, warnings: { '': [] }, module: '', current_debug: nast.empty_debug(), varPositions: {}, var_types: collect_var_types ? {} : null, ret_types: collect_var_types ? {} : null };
+}
+
+// def_fun of a single module - depends only on that module's AST, so it can be cached between checks
+function prepare_module_def_fun(module_name, ast) {
+	return prepare_def_fun({ [module_name]: ast }, new_errors())[module_name];
+}
+
+// def_fun for one check, built from cached prepare_module_def_fun results ({ module_name: funs }).
+// The checker modifies definitions in place (e.g. resolves type references in argument types) and adds
+// new ones, so every check gets its own view: a definition is copied on first access, the cache stays intact.
+function def_fun_from_cache(cached_def_fun) {
+	const def_fun = {};
+	for (const [module_name, funs] of Object.entries(cached_def_fun)) {
+		def_fun[module_name] = new Proxy({}, {
+			get(own, key) {
+				if (Object.hasOwn(own, key) || !Object.hasOwn(funs, key)) return own[key];
+				const def = funs[key];
+				const types = DC({ args: def.args, ret_type: def.ret_type });
+				return own[key] = { ...def, args: types.args, ret_type: types.ret_type };
+			},
+			has(own, key) {
+				return key in own || key in funs;
+			},
+		});
+	}
+	return def_fun;
+}
+
 function check_modules(modules, lib_modules, known_types) {
+	const errors = new_errors();
+	let def_fun;
+	try {
+		def_fun = prepare_def_fun(lib_modules, errors);
+	} catch (e) {
+		console.log(errors.module, e, e.stack);
+		add_error(errors, `!! parser error !! ${e.message}`);
+		return { errors: errors.errors, deref: { delete: [], create: [] }, warnings: errors.warnings, varPositions: errors.varPositions };
+	}
+	const steps = check_modules_steps(modules, def_fun, known_types, errors);
+	let step;
+	while (!(step = steps.next()).done);
+	return step.value;
+}
+
+// Generator version of check_modules: yields between functions so the caller can pause or abandon
+// (cancel) the check. def_fun: { module_name: { fun_key: fun_def } } - it is modified while checking.
+function* check_modules_steps(modules, def_fun, known_types, errors = new_errors()) {
 	modules = DC(modules);
-	let errors = { errors: { '': [] }, warnings: { '': [] }, module: '', current_debug: nast.empty_debug(), varPositions: {} };
 	let deref = { delete: [], create: [] };
 	try {
 		// for (const [module_name, ast] of Object.entries(modules)) {
@@ -220,14 +267,13 @@ function check_modules(modules, lib_modules, known_types) {
 		// 	modules[module_name].fun_def = new_fun_def;
 		// 	lib_modules[module_name].fun_def = new_fun_def;
 		// }
-		let def_fun = prepare_def_fun(lib_modules, errors);
 		for (const [module_name, ast] of Object.entries(modules)) {
 			errors.current_debug = nast.empty_debug()
 			errors.module = module_name;
-			errors.errors[errors.module] = []; 
+			errors.errors[errors.module] = [];
 			errors.warnings[errors.module] = [];
 			try {
-				check_module(modules[module_name], def_fun, errors, deref, known_types);
+				yield* check_module(modules[module_name], def_fun, errors, deref, known_types);
 			} catch (e) {
 				console.log(errors.module, e, e.stack);
 				add_error(errors, `!! parser error !! ${e.message}`);
@@ -238,7 +284,7 @@ function check_modules(modules, lib_modules, known_types) {
 		add_error(errors, `!! parser error !! ${e.message}`);
 	}
 
-	return { errors: errors.errors, deref: deref, warnings: errors.warnings, varPositions: errors.varPositions };
+	return { errors: errors.errors, deref: deref, warnings: errors.warnings, varPositions: errors.varPositions, var_types: errors.var_types, ret_types: errors.ret_types };
 }
 
 function get_own_conv_defs(defs, types, known_types) {
@@ -276,7 +322,9 @@ function create_own_convertions_module(own_conv, known_types, moudule_name) {
 	return new_module;
 }
 
-function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_types) {
+function* check_func(i, modules, own_conv, module, def_fun, errors, deref, known_types) {
+	// a previous function interrupted by an internal error may have left the loop context set
+	modules.env.breaks = { vars: {}, is: false };
 	let fun_vars = {};
 	let fun_def = module.fun_def[i];
 	for (let j = 0; j < array.len(fun_def.args); j++) {
@@ -297,6 +345,12 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 		module.fun_def[i].args[j].tct_type = arg_type;
 	}
 	modules.env.ret_type = fun_def.ret_type.tct_type;
+	// optional (errors.ret_types set): types of the returned values, per function (place of its body)
+	errors.current_ret_types = null;
+	if (errors.ret_types) {
+		const module_ret_types = errors.ret_types[errors.module] ??= {};
+		errors.current_ret_types = module_ret_types[placeToIndex(fun_def.cmd.debug.begin)] = [];
+	}
 	if (tct.is_own_type(modules.env.ret_type, known_types)) {
 		add_error(errors, `Function ${fun_def.name} returns own type.`);
 	}
@@ -314,11 +368,12 @@ function check_func(i, modules, own_conv, module, def_fun, errors, deref, known_
 		module.fun_def[i].ret_type.tct_type = modules.env.ret_type;
 	}
 	if (array.is_empty(errors.errors[errors.module])) {
+		yield;
 		fill_value_types_in_cmd(module.fun_def[i].cmd, fun_vars, modules, errors, known_types, own_conv, module.module_name);
 	}
 }
 
-function check_module(module, def_fun, errors, deref, known_types) {
+function* check_module(module, def_fun, errors, deref, known_types) {
 	let modules = {
 		env: { deref: deref, current_module: module.module_name, breaks: { vars: {}, is: false }, ret_type: tct.empty() },
 		imports: {},
@@ -330,7 +385,14 @@ function check_module(module, def_fun, errors, deref, known_types) {
 	hash.set_value(modules.imports, module.module_name, true);
 	let own_conv = {};
 	for (let i = 0; i < array.len(module.fun_def); i++) {
-		check_func(i, modules, own_conv, module, def_fun, errors, deref, known_types);
+		// an internal error in one function must not stop checking the others
+		try {
+			yield* check_func(i, modules, own_conv, module, def_fun, errors, deref, known_types);
+		} catch (e) {
+			console.log(errors.module, e, e.stack);
+			add_error(errors, `!! parser error !! ${e.message}`);
+		}
+		yield;
 	}
 	let i_offset = array.len(module.fun_def);
 	let new_module = create_own_convertions_module(own_conv, known_types, module.module_name);
@@ -362,8 +424,7 @@ function check_module(module, def_fun, errors, deref, known_types) {
 	module.fun_def = m;
 	for (let i = 0; i < array.len(new_module.fun_def); i++) {
 		try {
-			check_func(i + i_offset, modules, own_conv, module, def_fun, errors, deref, known_types);
-
+			yield* check_func(i + i_offset, modules, own_conv, module, def_fun, errors, deref, known_types);
 		} catch (e) {
 			console.log(errors.module, e, e.stack);
 			add_error(errors, `!! parser error !! ${e.message}`);
@@ -394,11 +455,16 @@ function set_end_function(vars, errors, place) {
 	set_type_to_variable(vars, '__END', tct.empty(), errors, place);
 }
 
+// Commands which are replaced by a fresh copy (`cmd.cmd = DC(...)`) at the end of check_cmd.
+// For them the original is discarded anyway, so it doesn't have to be copied up front
+// (copying it at every nesting level was quadratic in the nesting depth).
+const CMDS_REPLACED_AFTER_CHECK = new Set(['if', 'for', 'fora', 'forh', 'loop', 'rep', 'while', 'if_mod', 'unless_mod', 'match', 'block']);
+
 function check_cmd(cmd, modules, b_vars, errors, known_types) {
 	errors.current_debug = cmd.debug;
 	let ret = {};
 	let vars = DC(b_vars);
-	let match_cmd_cmd_0 = DC(cmd.cmd);
+	let match_cmd_cmd_0 = CMDS_REPLACED_AFTER_CHECK.has(ov.get_element(cmd.cmd)) ? cmd.cmd : DC(cmd.cmd);
 	if (ov.is(match_cmd_cmd_0, 'if')) {
 		let as_if = ov.as(match_cmd_cmd_0, 'if');
 		let vars_op = DC(vars);
@@ -516,6 +582,7 @@ function check_cmd(cmd, modules, b_vars, errors, known_types) {
 	} else if (ov.is(match_cmd_cmd_0, 'return')) {
 		let as_return = ov.as(match_cmd_cmd_0, 'return');
 		let ret_type = check_val(as_return, modules, vars, errors, known_types);
+		errors.current_ret_types?.push(JSON.stringify(ret_type.type));
 		if (tct.is_own_type(ret_type.type, known_types)) {
 			add_error(errors, 'can\'t return own value');
 		} else if (ov.is(modules.env.ret_type, 'tct_void') && !ov.is(ret_type.type, 'tct_empty')) {
@@ -669,13 +736,15 @@ function check_forh(as_forh, modules, vars, errors, known_types) {
 	if (ov.is(match_as_forh_val_mod_0, 'none')) {
 	} else if (ov.is(match_as_forh_val_mod_0, 'ref')) {
 		var_tab = rec_get_var_from_lval(as_forh.hash, errors);
-		vars[ov.as(var_tab[0], 'var')].referenced_by = ov.mk('variable', as_forh.val.name);
+		const hash_var = var_tab.length > 0 ? get_declared_var(vars, { var: ov.as(var_tab[0], 'var') }) : null;
+		if (hash_var) hash_var.referenced_by = ov.mk('variable', as_forh.val.name);
 	}
 	break_continue_block(as_forh.cmd, modules, vars_op, errors, known_types);
 	let match_as_forh_val_mod_1 = as_forh.val_mod;
 	if (ov.is(match_as_forh_val_mod_1, 'none')) {
 	} else if (ov.is(match_as_forh_val_mod_1, 'ref')) {
-		vars[ov.as(var_tab[0], 'var')].referenced_by = ov.mk('none');
+		const hash_var = var_tab.length > 0 ? get_declared_var(vars, { var: ov.as(var_tab[0], 'var') }) : null;
+		if (hash_var) hash_var.referenced_by = ov.mk('none');
 	}
 	join_vars(vars, vars_op, modules, errors, known_types);
 }
@@ -800,7 +869,8 @@ function check_match(as_match, modules, vars, errors, known_types) {
 				if (!tct.is_own_type(val_type.type, known_types)) {
 					add_error(errors, 'case param of non-own variant cannot be ref');
 				}
-				vars_case[ov.as(as_match.val.value, 'var')].referenced_by = ov.mk('variable', var_decl.declaration.name);
+				const referenced_var = get_declared_var(vars_case, as_match.val.value);
+				if (referenced_var) referenced_var.referenced_by = ov.mk('variable', var_decl.declaration.name);
 			}
 		} else if (ov.is(match_branch_variant_value_1, 'none')) {
 			if (hash.has_key(branch_var_types, variant_name)) {
@@ -818,9 +888,8 @@ function check_match(as_match, modules, vars, errors, known_types) {
 			}
 		} else if (ov.is(match_branch_variant_value_2, 'none')) {
 		}
-		if (ov.is(as_match.val.value, 'var')) {
-			vars_case[ov.as(as_match.val.value, 'var')].referenced_by = ov.mk('none');
-		}
+		const matched_var = get_declared_var(vars_case, as_match.val.value);
+		if (matched_var) matched_var.referenced_by = ov.mk('none');
 		if (first) {
 			ObjectAssignInPlace(vars_op, vars_case);
 		} else {
@@ -1039,7 +1108,7 @@ function check_fun_val(fun_val, modules, vars, errors, known_types) {
 				if (err_len == array.len(errors.errors[errors.module])) {
 					let var_name = ov.as(var_tab[0], 'var');
 					if (hash.has_key(prev_ref, var_name)) {
-						if (tct.is_own_type(vars[var_name].type, known_types)) {
+						if (Object.hasOwn(vars, var_name) && tct.is_own_type(vars[var_name].type, known_types)) {
 							add_error(errors, 'many ref-arguments come from the same own-type variable: ' + var_name);
 						} else {
 							add_warning(errors, 'many ref-arguments come from the same variable: ' + var_name);
@@ -1842,15 +1911,17 @@ function get_type_from_bin_op_and_check(bin_op, modules, vars, errors, known_typ
 	let op_def2 = tc_types.get_bin_op_def(op);
 	if (!ptd_system.is_accepted(left_type2, op_def2.arg1, modules, errors)) {
 		add_error(errors, `incorrect type of the first argument operator \'${op}\': ${get_print_tct_type_name(left_type2.type)}`, bin_op.left.debug);
-	} else if (ov.is(bin_op.left.value, 'var')) {
-		vars[ov.as(bin_op.left.value, 'var')].type = ptd_system.cross_type(op_def2.arg1, vars[ov.as(bin_op.left.value,
-			'var')].type, modules, errors, known_types);
+	} else if (get_declared_var(vars, bin_op.left.value)) {
+		const left_var = get_declared_var(vars, bin_op.left.value);
+		left_var.type = ptd_system.cross_type(op_def2.arg1, left_var.type, modules, errors, known_types);
+		record_var_type(left_var, errors);
 	}
 	if (!ptd_system.is_accepted(right_type, op_def2.arg2, modules, errors)) {
 		add_error(errors, `incorrect type of the second argument operator \'${op}\': ${get_print_tct_type_name(right_type.type)}`, bin_op.right.debug);
-	} else if (ov.is(bin_op.right.value, 'var')) {
-		vars[ov.as(bin_op.right.value, 'var')].type = ptd_system.cross_type(op_def2.arg2, vars[ov.as(bin_op.right.value,
-			'var')].type, modules, errors, known_types);
+	} else if (get_declared_var(vars, bin_op.right.value)) {
+		const right_var = get_declared_var(vars, bin_op.right.value);
+		right_var.type = ptd_system.cross_type(op_def2.arg2, right_var.type, modules, errors, known_types);
+		record_var_type(right_var, errors);
 	}
 	return { type: op_def2.ret, src: ov.mk('speculation') };
 }
@@ -2132,7 +2203,24 @@ function check_var_decl_try(var_decl, is_try, modules, vars, errors, known_types
 
 const placeToIndex = (place) => `${place.line}|${place.position}`;
 
+// The entry of the variable used by the value (`var` value), or null when the value is not a variable or the variable
+// is not declared - that is already reported by check_val, the check must go on.
+function get_declared_var(vars, value) {
+	if (!ov.is(value, 'var')) return null;
+	const name = ov.as(value, 'var');
+	return Object.hasOwn(vars, name) ? vars[name] : null;
+}
+
+// Optional (errors.var_types set): every type a variable gets during the check, per declaration place
+// ({ module: { 'line|position': [JSON of the type, ...] } }) - used to find declarations with one, unambiguous type.
+function record_var_type(var_, errors) {
+	if (!errors.var_types || !var_.defPlace || var_.name === '__END') return;
+	const module_types = errors.var_types[errors.module] ??= {};
+	(module_types[placeToIndex(var_.defPlace)] ??= []).push(JSON.stringify(var_.type));
+}
+
 function add_var_to_vars(var_, vars, errors) {
+	record_var_type(var_, errors);
 	if (var_.name !== '__END') {
 		const varPos = placeToIndex(var_.defPlace);
 		errors.varPositions[errors.module] ??= {};
@@ -2673,5 +2761,9 @@ function takes_own_arg(function_, defined_types) {
 module.exports = {
 	// check,
 	check_modules,
+	check_modules_steps,
+	new_errors,
+	prepare_module_def_fun,
+	def_fun_from_cache,
 	get_print_tct_type_name
 }

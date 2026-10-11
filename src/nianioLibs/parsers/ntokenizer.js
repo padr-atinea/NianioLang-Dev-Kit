@@ -5,9 +5,10 @@ const get_next_nth_char = (state, number) => state.text[state.pos + number] ?? '
 const get_char = (state) => get_next_nth_char(state, 0);
 const get_next_char = (state) => get_next_nth_char(state, 1);
 
-const is_letter = (char) => /^[a-zA-Z]$/.test(char);
-const is_digit = (char) => /^[0-9]$/.test(char);
-const is_hex_number = (char) => /^[0-9a-fA-F]$/.test(char);
+// called for every character - plain comparisons instead of regular expressions (same results)
+const is_letter = (char) => char?.length === 1 && ((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z'));
+const is_digit = (char) => char?.length === 1 && char >= '0' && char <= '9';
+const is_hex_number = (char) => is_digit(char) || (char?.length === 1 && ((char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')));
 
 const is_token = (state) => ov.is(state.type, 'delimiter') || ov.is(state.type, 'operator') || ov.is(state.type, 'keyword');
 
@@ -124,10 +125,10 @@ function get_next_token(state) {
 			state.pos++;
 			char = get_char(state);
 		}
-		if (Object.keys(nast.lett_oper).includes(state.next_token)) {
+		if (state.next_token in nast.lett_oper) {
 			state.type = ov.mk('operator');
 		} else {
-			state.type = Object.keys(keywords).includes(state.next_token) ? ov.mk('keyword') : ov.mk('word');
+			state.type = (state.next_token in keywords) ? ov.mk('keyword') : ov.mk('word');
 		}
 	} else if (try_get_operator(state)) {
 	} else if (';:,[]{}()'.includes(char)) {
@@ -187,7 +188,7 @@ function get_place_ws(state) {
 	return state.place_ws;
 }
 function get_token(state) {
-	return DC(state.next_token);
+	return state.next_token;
 }
 function info(state) {
 	return `token: '${get_token(state)}'

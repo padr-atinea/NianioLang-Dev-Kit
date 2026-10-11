@@ -956,14 +956,14 @@ function get_ref_type(type_name, /*ref*/ ref_modules, /*ref*/ ref_errors) {
 	if (array.len(functions) == 0) {
 		return tct.tct_im();
 	}
-	let function_ = DC(functions[0]);
-	let module_st = hash.get_value(ref_modules.funs, function_.module);
-	const match_function_is_type = DC(function_.is_type);
-	if (ov.is(match_function_is_type, 'yes')) {
-		const typ = ov.as(match_function_is_type, 'yes');
-		return typ;
-	} else if (ov.is(match_function_is_type, 'no')) {
+	// Do not deep-copy the whole function definition (it contains the function body) - only
+	// the memoized type is copied. fun_def_to_ptd does not modify the body.
+	const function_def = functions[0];
+	let module_st = hash.get_value(ref_modules.funs, function_def.module);
+	if (ov.is(function_def.is_type, 'yes')) {
+		return DC(ov.as(function_def.is_type, 'yes'));
 	}
+	const function_ = { ...function_def };
 	let fun_as_type = tct.tct_im();
 	const match_ptd_parser_fun_def_to_ptd_function_cmd = ptd_parser.fun_def_to_ptd(function_.cmd);
 	if (ov.is(match_ptd_parser_fun_def_to_ptd_function_cmd, 'err')) {

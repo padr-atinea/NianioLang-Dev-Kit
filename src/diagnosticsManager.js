@@ -8,45 +8,23 @@ const positionToIndex = (line, col) => `${line}|${col}`;
 const indexToPosition = (index) => index.split('|').map(part => parseInt(part));
 const isNotNl = (document, ext = '.nl') => !document || document.uri.scheme !== 'file' || document.languageId !== 'nianiolang' || path.extname(document.fileName) !== ext;
 
-async function updateAllOpenTabs(document, checkTypes) {
-	const uriSet = new Set([document?.uri.fsPath, null, undefined]);
-	const docs = [];
-	const modules = [];
-	for (const group of vscode.window.tabGroups.all) {
-		for (const tab of group.tabs) {
-			const fsPath = tab.input?.uri?.fsPath;
-			if (uriSet.has(fsPath)) continue;
-			const doc = vscode.workspace.textDocuments.find(d => d.fileName === fsPath)
-				?? await vscode.workspace.openTextDocument(tab.input.uri);
-			if (isNotNl(doc)) continue;
-			docs.push(doc);
-			const fileName = doc.fileName;
-			const moduleName = path.basename(fileName, path.extname(fileName));
-			modules.push(moduleName);
-		}
-	}
-	if (checkTypes) moduleManager.checkTypes(modules);
-	docs.forEach(d => updateDiagnostics(d, checkTypes));
-}
+const toDiagnostic = (err) => new vscode.Diagnostic(
+	new vscode.Range(
+		Math.max(0, err.debug.begin.line - 1),
+		Math.max(0, err.debug.begin.position - 1),
+		Math.max(0, err.debug.end.line - 1),
+		Math.max(0, err.debug.end.position - 1)
+	),
+	err.message,
+	ov.is(err.type, 'error') ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
+);
 
-function updateDiagnostics(document, checkTypes) {
-	if (isNotNl(document)) return;
-	const fileName = document.fileName;
-	const thisModuleName = path.basename(fileName, path.extname(fileName));
-	const thisModule = moduleManager.getModule(thisModuleName);
+// Publishes the current (static and last computed type checking) diagnostics of the module.
+// Type checking itself is managed by the AnalysisScheduler.
+function publishModuleDiagnostics(moduleName) {
+	const thisModule = moduleManager.getModule(moduleName);
 	if (!thisModule) return;
-	if (!thisModule.typesChecked && checkTypes) moduleManager.checkTypes([thisModuleName]);
-	const diagnosticsList = [...thisModule.staticDiagnostics, ...thisModule.dynamicDiagnostics].map(err => new vscode.Diagnostic(
-		new vscode.Range(
-			Math.max(0, err.debug.begin.line - 1),
-			Math.max(0, err.debug.begin.position - 1),
-			Math.max(0, err.debug.end.line - 1),
-			Math.max(0, err.debug.end.position - 1)
-		),
-		err.message,
-		ov.is(err.type, 'error') ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
-	));
-
+	const diagnosticsList = [...thisModule.staticDiagnostics, ...thisModule.dynamicDiagnostics].map(toDiagnostic);
 	// const diagnosticsList = [];
 	// Object.entries(thisModule.varPositions).forEach(([p, val]) => {
 	// 	const pos = indexToPosition(p);
@@ -76,13 +54,16 @@ function updateDiagnostics(document, checkTypes) {
 	// 	}
 	// });
 	
-	diagnostics.set(document.uri, diagnosticsList);
-	
-	// vscode.window.showInformationMessage(`updateDiagnostics ${thisModuleName} ${msg}`);
+	diagnostics.set(vscode.Uri.file(thisModule.filePath), diagnosticsList);
 }
 
-function deleteDocument(document) {
-	// diagnostics.delete(document.uri);
+function updateDiagnostics(document) {
+	if (isNotNl(document)) return;
+	publishModuleDiagnostics(moduleManager.getModuleName(document.fileName));
 }
 
-module.exports = { updateDiagnostics, updateAllOpenTabs, deleteDocument };
+function deleteDiagnostics(uri) {
+	diagnostics.delete(uri);
+}
+
+module.exports = { updateDiagnostics, publishModuleDiagnostics, deleteDiagnostics };
