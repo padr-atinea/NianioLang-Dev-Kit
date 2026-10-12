@@ -359,8 +359,8 @@ function prettyPrintMethod(moduleName, pos) {
 	if (!module || module.parsedModule.errors.length > 0) return null;
 	const fun = getFunctionFromPos(module.parsedModule, pos);
 	if (!fun) return null;
-	fun.comment = [];
-	const out = getPrettyPrinter().print_function(fun, moduleName, getRemoveMod());
+	// the comment above the function is not printed (it is outside of the replaced range) - a copy, the cached AST stays intact
+	const out = getPrettyPrinter().print_function({ ...fun, comment: [] }, moduleName, getRemoveMod());
 	return { out, range: fun.rawRange };
 }
 

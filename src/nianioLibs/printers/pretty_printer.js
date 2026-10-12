@@ -656,12 +656,16 @@ function print_cmd(state, cmd, ind) {
 					'<=': '>',
 					'eq': 'ne',
 				};
+				// the negated condition is a new object - the AST of the module must not be modified
+				// (it is cached and printed again: the operator would be negated again on every print)
+				let negated = null;
 				if (op in opposites) {
-					unless_mod.cond.value.bin_op.op = opposites[op];
-					final_cond = unless_mod.cond;
+					negated = opposites[op];
 				} else if (Object.values(opposites).includes(op)) {
-					unless_mod.cond.value.bin_op.op = Object.entries(opposites).find(([_, val]) => val == op)[0];
-					final_cond = unless_mod.cond;
+					negated = Object.entries(opposites).find(([_, val]) => val == op)[0];
+				}
+				if (negated !== null) {
+					final_cond = { ...unless_mod.cond, value: { bin_op: { ...ov.as(unless_mod.cond.value, 'bin_op'), op: negated } } };
 				}
 			}
 			const block = { debug: cmd.debug, cmd: { block: { cmds: [unless_mod.cmd], ending_comment: [] } } };
